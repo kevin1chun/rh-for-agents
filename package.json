@@ -25,20 +25,24 @@
   "engines": {
     "bun": ">=1.3.0"
   },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "bin": {
-    "robinhood-for-agents": "./bin/robinhood-for-agents.ts"
+    "robinhood-for-agents": "./dist/bin/robinhood-for-agents.js"
   },
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
     },
     "./client": {
-      "types": "./src/client/index.ts",
-      "default": "./src/client/index.ts"
+      "types": "./dist/src/client/index.d.ts",
+      "import": "./dist/src/client/index.js",
+      "default": "./dist/src/client/index.js"
     }
   },
-  "files": ["src", "bin", "skills"],
+  "files": ["dist", "skills"],
   "dependencies": {
     "@clack/prompts": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
@@ -52,6 +56,8 @@
     "vitest": "^4.0.18"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "check:fix": "biome check --write .",
