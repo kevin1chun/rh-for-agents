@@ -1,5 +1,4 @@
 import { execSync } from "node:child_process";
-import { resolve } from "node:path";
 import * as p from "@clack/prompts";
 import { loadTokens } from "../../client/token-store.js";
 import { claudeCode } from "./agents/claude-code.js";
@@ -9,6 +8,7 @@ import type { AgentId, AgentMeta } from "./agents/types.js";
 import { AGENTS } from "./agents/types.js";
 import { isCliAvailable } from "./detect.js";
 import { installWorkspaceDep } from "./install-workspace-dep.js";
+import { binPath, skillsDir } from "./paths.js";
 
 const agentMap: Record<AgentId, AgentMeta> = {
   "claude-code": claudeCode,
@@ -86,13 +86,12 @@ export async function onboard(preselectedAgent?: AgentId): Promise<void> {
   }
 
   // --- Install MCP ---
-  const binPath = resolve(import.meta.dirname, "../../../bin/robinhood-for-agents.ts");
-
   if (agent.installMcp) {
+    const entry = binPath();
     const mcpSpinner = p.spinner();
     mcpSpinner.start("Installing MCP config...");
     try {
-      agent.installMcp(binPath);
+      agent.installMcp(entry);
       mcpSpinner.stop("MCP server registered.");
     } catch (err) {
       mcpSpinner.stop("MCP installation failed.");
@@ -103,7 +102,7 @@ export async function onboard(preselectedAgent?: AgentId): Promise<void> {
 
   // --- Install skills ---
   if (agent.supportsSkills && agent.installSkills) {
-    const skillsSource = resolve(import.meta.dirname, "../../../skills");
+    const skillsSource = skillsDir();
     const skillsSpinner = p.spinner();
     skillsSpinner.start("Installing skills...");
     try {

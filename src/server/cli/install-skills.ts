@@ -1,8 +1,9 @@
 import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { skillsDir } from "./paths.js";
 
 export function installSkills(targetDir: string): void {
-  const skillsSource = resolve(import.meta.dirname, "../../../skills");
+  const skillsSource = skillsDir();
 
   if (!existsSync(skillsSource)) {
     console.error(`Skills directory not found: ${skillsSource}`);
