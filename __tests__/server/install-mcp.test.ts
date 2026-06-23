@@ -1,5 +1,5 @@
-import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { binPath } from "../../src/server/cli/paths.js";
 
 const execFileSyncMock = vi.fn();
 vi.mock("node:child_process", () => ({ execFileSync: execFileSyncMock }));
@@ -66,7 +66,6 @@ describe("installMcp", () => {
 
     const addCall = execFileSyncMock.mock.calls[1] as unknown[];
     const args = addCall[1] as string[];
-    const expectedBinPath = resolve(import.meta.dirname, "../../bin/robinhood-for-agents.ts");
-    expect(args).toContain(expectedBinPath);
+    expect(args).toContain(binPath());
   });
 });
