@@ -10,7 +10,7 @@ jobs:
       contents: write      # create GitHub Release
       id-token: write      # npm provenance
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
