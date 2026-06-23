@@ -149,7 +149,7 @@ describe("Tool handlers return MCP content format", () => {
     expect(accountsData.accounts).toEqual([
       {
         url: "https://api.robinhood.com/accounts/ABC123/",
-        account_number: "[REDACTED]",
+        account_number: "ABC123",
         type: "cash",
       },
     ]);

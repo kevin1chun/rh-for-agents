@@ -12,7 +12,7 @@ const BEARER_HEADER_PATTERN = /\bBearer\s+[A-Za-z0-9_.-]{10,}\b/gi;
 // Matches values of known sensitive keys in JSON-serialized strings.
 // e.g. "access_token":"some-value" → "access_token":"[REDACTED]"
 const SENSITIVE_KEY_PATTERN =
-  /"(access_token|refresh_token|device_token|bearer_token|authorization|password|secret|account_number)":\s*"([^"]*)"/gi;
+  /"(access_token|refresh_token|device_token|bearer_token|authorization|password|secret)":\s*"([^"]*)"/gi;
 
 /** Redact JWT tokens and known sensitive key values from a string. */
 export function redactTokens(input: string): string {
@@ -31,7 +31,6 @@ const SENSITIVE_KEYS = new Set([
   "token",
   "password",
   "secret",
-  "account_number",
 ]);
 
 /** Deep-clone an object, replacing known sensitive key values with [REDACTED]. */

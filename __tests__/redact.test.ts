@@ -48,6 +48,11 @@ describe("redactTokens", () => {
     expect(redactTokens(input)).toBe(input);
   });
 
+  it("does not redact account_number (needed for multi-account flows)", () => {
+    const input = '{"account_number":"1AB23456","type":"individual"}';
+    expect(redactTokens(input)).toBe(input);
+  });
+
   it("does not redact short dotted strings", () => {
     const input = "version 1.2.3";
     expect(redactTokens(input)).toBe(input);
@@ -89,5 +94,12 @@ describe("scrubSensitiveKeys", () => {
   it("passes through objects with no sensitive keys", () => {
     const obj = { symbol: "AAPL", price: 150 };
     expect(scrubSensitiveKeys(obj)).toEqual(obj);
+  });
+
+  it("does not redact account_number (needed for multi-account flows)", () => {
+    const obj = { account_number: "1AB23456", type: "individual" };
+    const result = scrubSensitiveKeys(obj);
+    expect(result.account_number).toBe("1AB23456");
+    expect(result.type).toBe("individual");
   });
 });
