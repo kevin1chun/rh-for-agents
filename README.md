@@ -239,6 +239,7 @@ Token refresh writes re-encrypted tokens back to the file automatically.
 - All order placements require explicit parameters (no dangerous defaults)
 - Skills always confirm with the user before placing orders
 - See [ACCESS_CONTROLS.md](docs/ACCESS_CONTROLS.md) for the full risk matrix
+- For multi-agent deployments, see [AGENT-IDENTITY.md](docs/AGENT-IDENTITY.md) for agent identity verification and per-tool authorization patterns
 
 ## Authentication
 
