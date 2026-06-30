@@ -63,6 +63,9 @@ Several approaches can implement this pattern:
 
 The choice depends on your deployment topology and trust model.
 
+For a working example using this pattern with robinhood-for-agents, see the
+[Gateway Auth example](./GATEWAY-AUTH.md).
+
 ## What the proxy should log
 
 For each `tools/call` request, the proxy should record:
