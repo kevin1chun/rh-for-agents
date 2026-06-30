@@ -7,24 +7,30 @@ export type Permission = "read" | "trade" | "account" | "admin";
 
 export const TOOL_PERMISSIONS: Record<string, Permission[]> = {
   // Read tier — market data and portfolio viewing
-  "get-portfolio": ["read"],
-  "get-watchlist": ["read"],
-  "get-positions": ["read"],
-  "get-holdings": ["read"],
-  "search-stocks": ["read"],
-  "get-stock-quote": ["read"],
-  "get-stock-history": ["read"],
-  "get-options-chain": ["read"],
-  "get-news": ["read"],
-  "get-orders": ["read"],
+  robinhood_get_portfolio: ["read"],
+  robinhood_get_stock_quote: ["read"],
+  robinhood_get_historicals: ["read"],
+  robinhood_get_news: ["read"],
+  robinhood_search: ["read"],
+  robinhood_get_movers: ["read"],
+  robinhood_get_crypto: ["read"],
+  robinhood_get_options: ["read"],
+  robinhood_get_orders: ["read"],
+  robinhood_get_order_status: ["read"],
+  robinhood_check_session: ["read"],
 
   // Trade tier — order management
-  "place-order": ["read", "trade"],
-  "cancel-order": ["read", "trade"],
+  robinhood_place_stock_order: ["read", "trade"],
+  robinhood_place_option_order: ["read", "trade"],
+  robinhood_place_crypto_order: ["read", "trade"],
+  robinhood_cancel_order: ["read", "trade"],
 
   // Account tier — sensitive account data
-  "get-account": ["read", "account"],
-  "get-transfers": ["read", "account"],
+  robinhood_get_account: ["read", "account"],
+  robinhood_get_accounts: ["read", "account"],
+
+  // Admin-only — interactive login should only be triggered by admin agents
+  robinhood_browser_login: ["admin"],
 };
 
 export interface GatewayConfig {

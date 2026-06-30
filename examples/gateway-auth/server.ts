@@ -6,10 +6,37 @@
  */
 
 import { configFromEnv } from "./config";
-import { AuthGateway, createVerifier } from "./gateway";
+import { AuthGateway, UnsafeStructuralVerifier, createVerifier } from "./gateway";
 
-const config = configFromEnv();
-const verifier = createVerifier(process.env.AGENT_VERIFIER || "structural");
+let config;
+try {
+  config = configFromEnv();
+} catch (err) {
+  console.error("[gateway] Configuration error:", (err as Error).message);
+  process.exit(1);
+}
+
+const verifierType = process.env.AGENT_VERIFIER || "structural";
+
+let verifier;
+try {
+  verifier = createVerifier(verifierType);
+} catch (err) {
+  console.error("[gateway] Verifier setup error:", (err as Error).message);
+  process.exit(1);
+}
+
+// Hard block: refuse to start with auth enabled + structural verifier
+if (config.authEnabled && verifier instanceof UnsafeStructuralVerifier) {
+  console.error(
+    "[gateway] FATAL: Cannot enable auth with UnsafeStructuralVerifier. " +
+      "Any caller can self-assert arbitrary permissions. " +
+      "Set AGENT_VERIFIER=shared-secret and provide AGENT_AUTH_SECRET, " +
+      "or implement a custom AgentVerifier.",
+  );
+  process.exit(1);
+}
+
 const gateway = new AuthGateway(config, verifier);
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -39,7 +66,7 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   // Parse JSON-RPC to extract tool name
-  let body: { method?: string; params?: { name?: string }; [k: string]: unknown };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
@@ -49,15 +76,25 @@ async function handleRequest(req: Request): Promise<Response> {
     );
   }
 
+  // Reject JSON-RPC batch arrays — each item would need individual auth
+  if (Array.isArray(body)) {
+    return Response.json(
+      { jsonrpc: "2.0", error: { code: -32600, message: "Batch requests are not supported" } },
+      { status: 400 },
+    );
+  }
+
+  const rpc = body as { method?: string; params?: { name?: string }; [k: string]: unknown };
+
   // Only gate tools/call — pass through other MCP methods (initialize, list, etc.)
-  if (body.method === "tools/call" && body.params?.name) {
+  if (rpc.method === "tools/call" && rpc.params?.name) {
     const credential = req.headers.get("x-agent-credential") ?? undefined;
-    const denial = await gateway.authorize(credential, body.params.name);
+    const denial = await gateway.authorize(credential, rpc.params.name);
     if (denial) {
       return Response.json(
         {
           jsonrpc: "2.0",
-          id: (body as Record<string, unknown>).id ?? null,
+          id: (rpc as Record<string, unknown>).id ?? null,
           error: { code: -32600, message: denial },
         },
         { status: 403 },
@@ -70,7 +107,7 @@ async function handleRequest(req: Request): Promise<Response> {
     const upstream = await fetch(config.upstream, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(rpc),
     });
     const upstreamBody = await upstream.text();
     return new Response(upstreamBody, {
@@ -82,7 +119,7 @@ async function handleRequest(req: Request): Promise<Response> {
     return Response.json(
       {
         jsonrpc: "2.0",
-        id: (body as Record<string, unknown>).id ?? null,
+        id: (rpc as Record<string, unknown>).id ?? null,
         error: { code: -32603, message: "Upstream unavailable" },
       },
       { status: 502 },

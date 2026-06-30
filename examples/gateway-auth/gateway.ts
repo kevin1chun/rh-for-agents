@@ -91,15 +91,151 @@ export class UnsafeStructuralVerifier implements AgentVerifier {
   }
 }
 
+/**
+ * Shared-secret verifier — minimal production-safe option.
+ *
+ * Validates credentials signed with a pre-shared secret (HMAC-SHA256).
+ * The credential is a JSON object with an `hmac` field that must match
+ * HMAC(secret, JSON.stringify({ agentId, permissions, expiry })).
+ *
+ * This is NOT equivalent to a proper identity system (JWT, DID, ZKP) but
+ * it prevents callers from self-asserting arbitrary permissions.
+ */
+export class SharedSecretVerifier implements AgentVerifier {
+  private secret: string;
+
+  constructor(secret: string) {
+    if (!secret || secret.length < 32) {
+      throw new Error(
+        "SharedSecretVerifier requires AGENT_AUTH_SECRET with at least 32 characters.",
+      );
+    }
+    this.secret = secret;
+  }
+
+  async verify(credential: string): Promise<VerificationResult> {
+    try {
+      const data = JSON.parse(credential);
+      if (
+        typeof data.agentId !== "string" ||
+        !data.agentId ||
+        !Array.isArray(data.permissions)
+      ) {
+        return {
+          verified: false,
+          agentId: "",
+          permissions: [],
+          reason: "invalid credential format",
+        };
+      }
+      if (!data.permissions.every((p: unknown) => typeof p === "string")) {
+        return {
+          verified: false,
+          agentId: data.agentId,
+          permissions: [],
+          reason: "permissions must be strings",
+        };
+      }
+      // Expiry is required for shared-secret credentials
+      if (!Number.isFinite(data.expiry) || data.expiry <= 0 || !Number.isInteger(data.expiry)) {
+        return {
+          verified: false,
+          agentId: data.agentId,
+          permissions: [],
+          reason: "missing or invalid expiry (required)",
+        };
+      }
+      if (data.expiry < Date.now() / 1000) {
+        return {
+          verified: false,
+          agentId: data.agentId,
+          permissions: [],
+          reason: "expired",
+        };
+      }
+      // Verify HMAC
+      if (typeof data.hmac !== "string") {
+        return {
+          verified: false,
+          agentId: data.agentId,
+          permissions: [],
+          reason: "missing hmac",
+        };
+      }
+      const payload = JSON.stringify({
+        agentId: data.agentId,
+        permissions: data.permissions,
+        ...(data.expiry != null ? { expiry: data.expiry } : {}),
+      });
+      const encoder = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        "raw",
+        encoder.encode(this.secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+      );
+      const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+      const expected = Array.from(new Uint8Array(sig))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      // Constant-time comparison (length-safe)
+      if (
+        expected.length !== data.hmac.length ||
+        !timingSafeEqual(expected, data.hmac)
+      ) {
+        return {
+          verified: false,
+          agentId: data.agentId,
+          permissions: [],
+          reason: "invalid hmac",
+        };
+      }
+      return {
+        verified: true,
+        agentId: data.agentId,
+        permissions: data.permissions,
+      };
+    } catch {
+      return {
+        verified: false,
+        agentId: "",
+        permissions: [],
+        reason: "invalid credential",
+      };
+    }
+  }
+}
+
+/** Constant-time string comparison to prevent timing attacks. */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
 // ---------------------------------------------------------------------------
 // Verifier factory
 // ---------------------------------------------------------------------------
 
 export function createVerifier(type: string): AgentVerifier {
   if (type === "structural") return new UnsafeStructuralVerifier();
+  if (type === "shared-secret") {
+    const secret = process.env.AGENT_AUTH_SECRET;
+    if (!secret) {
+      throw new Error(
+        "AGENT_AUTH_SECRET environment variable is required for shared-secret verifier. " +
+          "Generate one with: openssl rand -hex 32",
+      );
+    }
+    return new SharedSecretVerifier(secret);
+  }
   throw new Error(
-    `Unknown verifier type: "${type}". Available: structural. ` +
-      `For production, implement the AgentVerifier interface.`,
+    `Unknown verifier type: "${type}". Available: structural (dev only), shared-secret. ` +
+      `For production, use shared-secret or implement the AgentVerifier interface.`,
   );
 }
 

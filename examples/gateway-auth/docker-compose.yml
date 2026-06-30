@@ -19,8 +19,9 @@ services:
       - GATEWAY_PORT=3001
       - MCP_UPSTREAM=http://mcp:3000
       - AGENT_AUTH_ENABLED=true
-      # ⚠️  structural verifier is for development only — see README
-      - AGENT_VERIFIER=structural
+      - AGENT_VERIFIER=shared-secret
+      # Generate with: openssl rand -hex 32
+      - AGENT_AUTH_SECRET=${AGENT_AUTH_SECRET}
     depends_on:
       - mcp
     restart: unless-stopped
