@@ -596,4 +596,127 @@ describe("RobinhoodClient", () => {
       expect(aapl?.financial_status_indicator).toBe("CC0");
     });
   });
+
+  describe("getEarnings", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("exposes EPS nested under `eps` (not flat estimate/actual), plus call/report", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "abc", symbol: "AAPL" }]); // findInstruments
+      // Live /marketdata/earnings/ nests estimate/actual under `eps`; the old flat
+      // top-level estimate/actual fields never appear in the response.
+      mockRequestGet.mockResolvedValueOnce([
+        {
+          symbol: "AAPL",
+          year: 2026,
+          quarter: 2,
+          eps: { estimate: "1.40", actual: "1.53" },
+          report: { date: "2026-05-01", timing: "am", verified: true },
+          call: {
+            datetime: "2026-05-01T21:00:00Z",
+            broadcast_url: null,
+            replay_url: "https://x/r",
+          },
+        },
+      ]);
+
+      const [q] = await client.getEarnings("AAPL");
+
+      expect(q?.eps?.estimate).toBe("1.40");
+      expect(q?.eps?.actual).toBe("1.53");
+      expect(q?.report?.verified).toBe(true);
+      expect(q?.call?.replay_url).toBe("https://x/r");
+    });
+  });
+
+  describe("getQuotes (widened Quote fields)", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("surfaces size / instrument / state fields the old schema omitted", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        {
+          symbol: "AAPL",
+          last_trade_price: "312.38",
+          ask_size: 200,
+          bid_size: 100,
+          instrument_id: "abc-123",
+          state: "active",
+        },
+      ]);
+      const [q] = await client.getQuotes(["AAPL"]);
+      expect(q?.ask_size).toBe(200);
+      expect(q?.bid_size).toBe(100);
+      expect(q?.instrument_id).toBe("abc-123");
+      expect(q?.state).toBe("active");
+    });
+  });
+
+  describe("getPositions (widened Position fields)", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("surfaces timestamps and pending cost basis", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        {
+          instrument: "https://api.robinhood.com/instruments/abc/",
+          quantity: "9",
+          average_buy_price: "150.00",
+          pending_average_buy_price: "150.00",
+          created_at: "2026-01-02T00:00:00Z",
+          updated_at: "2026-07-08T00:00:00Z",
+        },
+      ]);
+      const [p] = await client.getPositions({ nonzero: true });
+      expect(p?.pending_average_buy_price).toBe("150.00");
+      expect(p?.created_at).toBe("2026-01-02T00:00:00Z");
+      expect(p?.updated_at).toBe("2026-07-08T00:00:00Z");
+    });
+  });
+
+  describe("getAllStockOrders (widened StockOrder fields)", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("surfaces the agent-attribution fields", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "o1", state: "filled", agent_id: "ag-1", agent_display_name: "Agentic" },
+      ]);
+      const [o] = await client.getAllStockOrders();
+      expect(o?.agent_id).toBe("ag-1");
+      expect(o?.agent_display_name).toBe("Agentic");
+    });
+  });
+
+  describe("getOptionMarketData (widened OptionMarketData fields)", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("surfaces adjusted mark price + sizes alongside the greeks", async () => {
+      // resolution chain: getIndexes -> findInstruments -> optionChains -> optionInstruments -> marketdata
+      mockRequestGet.mockResolvedValueOnce([]); // getIndexes: AAPL is not an index
+      mockRequestGet.mockResolvedValueOnce([{ symbol: "AAPL", id: "inst1" }]); // findInstruments
+      mockRequestGet.mockResolvedValueOnce([{ id: "chain1", expiration_dates: ["2026-07-08"] }]); // chains
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "opt1", expiration_date: "2026-07-08", strike_price: "312.5000", type: "call" },
+      ]); // option instruments (survives the client-side filter)
+      mockRequestGet.mockResolvedValueOnce({
+        delta: "0.52",
+        adjusted_mark_price: "5.40",
+        ask_size: 30,
+        bid_size: 25,
+        instrument: "https://api.robinhood.com/options/instruments/opt1/",
+      }); // market data
+      const [md] = await client.getOptionMarketData("AAPL", "2026-07-08", 312.5, "call");
+      expect(md?.delta).toBe("0.52");
+      expect(md?.adjusted_mark_price).toBe("5.40");
+      expect(md?.ask_size).toBe(30);
+      expect(md?.instrument).toBe("https://api.robinhood.com/options/instruments/opt1/");
+    });
+  });
 });
