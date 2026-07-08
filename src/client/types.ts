@@ -135,16 +135,41 @@ export type Quote = z.infer<typeof QuoteSchema>;
 
 export const FundamentalSchema = z.object({
   symbol: z.string().optional(),
-  pe_ratio: z.string().nullable().optional(),
-  dividend_yield: z.string().nullable().optional(),
-  market_cap: z.string().nullable().optional(),
+  instrument: z.string().nullable().optional(),
+  // Today's session OHLCV (which session is selected by the `bounds` field)
+  open: z.string().nullable().optional(),
   high: z.string().nullable().optional(),
   low: z.string().nullable().optional(),
-  high_52_weeks: z.string().nullable().optional(),
-  low_52_weeks: z.string().nullable().optional(),
+  volume: z.string().nullable().optional(),
+  overnight_volume: z.string().nullable().optional(),
+  market_date: z.string().nullable().optional(),
+  bounds: z.string().nullable().optional(),
+  // Trailing volume averages
   average_volume: z.string().nullable().optional(),
   average_volume_2_weeks: z.string().nullable().optional(),
+  average_volume_30_days: z.string().nullable().optional(),
+  // 52-week range (with the date each extreme was set)
+  high_52_weeks: z.string().nullable().optional(),
+  high_52_weeks_date: z.string().nullable().optional(),
+  low_52_weeks: z.string().nullable().optional(),
+  low_52_weeks_date: z.string().nullable().optional(),
+  // Valuation & capitalization
+  market_cap: z.string().nullable().optional(),
+  pe_ratio: z.string().nullable().optional(),
+  pb_ratio: z.string().nullable().optional(),
   shares_outstanding: z.string().nullable().optional(),
+  float: z.string().nullable().optional(),
+  // Dividend schedule
+  dividend_yield: z.string().nullable().optional(),
+  dividend_per_share: z.string().nullable().optional(),
+  distribution_frequency: z.string().nullable().optional(),
+  payable_date: z.string().nullable().optional(),
+  ex_dividend_date: z.string().nullable().optional(),
+  record_date: z.string().nullable().optional(),
+  // Financial-status indicator (pair the code with its description; never surface the code alone)
+  financial_status_indicator: z.string().nullable().optional(),
+  financial_status_description: z.string().nullable().optional(),
+  // Company profile
   description: z.string().nullable().optional(),
   ceo: z.string().nullable().optional(),
   headquarters_city: z.string().nullable().optional(),

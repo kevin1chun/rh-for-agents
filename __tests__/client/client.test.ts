@@ -547,4 +547,53 @@ describe("RobinhoodClient", () => {
       expect(client.isLoggedIn).toBe(false);
     });
   });
+
+  describe("getFundamentals", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("returns the full fundamentals field set (incl. float, pb_ratio, dividend schedule)", async () => {
+      // A realistic /fundamentals/ result row. The endpoint returns far more than
+      // the legacy schema declared; these fields must survive to the caller.
+      mockRequestGet.mockResolvedValueOnce([
+        {
+          symbol: "AAPL",
+          open: "311.91",
+          volume: "6937140",
+          market_cap: "4566753282000",
+          pe_ratio: "37.58",
+          pb_ratio: "42.7892",
+          shares_outstanding: "14687400000",
+          float: "14669349185.4",
+          average_volume_30_days: "68434826.7547",
+          high_52_weeks: "317.40",
+          high_52_weeks_date: "2026-06-08",
+          dividend_per_share: "0.27",
+          distribution_frequency: "Quarterly",
+          ex_dividend_date: "2026-05-11",
+          financial_status_indicator: "CC0",
+          sector: "Electronic Technology",
+        },
+      ]);
+
+      const [aapl] = await client.getFundamentals(["aapl"]);
+
+      // requestGet hit the fundamentals endpoint with a joined, upper-cased symbol list
+      expect(mockRequestGet).toHaveBeenCalledTimes(1);
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining("/fundamentals/"),
+        expect.objectContaining({ dataType: "results", params: { symbols: "AAPL" } }),
+      );
+
+      // Newly-typed fields are present and accessible on the Fundamental type
+      expect(aapl?.float).toBe("14669349185.4");
+      expect(aapl?.pb_ratio).toBe("42.7892");
+      expect(aapl?.average_volume_30_days).toBe("68434826.7547");
+      expect(aapl?.dividend_per_share).toBe("0.27");
+      expect(aapl?.high_52_weeks_date).toBe("2026-06-08");
+      expect(aapl?.financial_status_indicator).toBe("CC0");
+    });
+  });
 });
