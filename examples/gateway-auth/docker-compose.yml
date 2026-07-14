@@ -1,0 +1,27 @@
+# Run robinhood-for-agents behind the auth gateway.
+# Agents connect to the gateway (port 3001) only.
+# The MCP server is internal — not exposed to the host.
+
+services:
+  mcp:
+    build: ../..
+    expose:
+      - "3000"
+    environment:
+      - ROBINHOOD_ACCESS_TOKEN=${ROBINHOOD_ACCESS_TOKEN}
+    restart: unless-stopped
+
+  gateway:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - GATEWAY_PORT=3001
+      - MCP_UPSTREAM=http://mcp:3000
+      - AGENT_AUTH_ENABLED=true
+      - AGENT_VERIFIER=shared-secret
+      # Generate with: openssl rand -hex 32
+      - AGENT_AUTH_SECRET=${AGENT_AUTH_SECRET}
+    depends_on:
+      - mcp
+    restart: unless-stopped
