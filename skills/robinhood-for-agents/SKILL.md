@@ -77,7 +77,7 @@ If it throws, follow [setup.md](setup.md) to authenticate.
 | `getCryptoPositions()` | Crypto | Crypto holdings |
 | `getCryptoQuote(symbol)` | Crypto | Current crypto price |
 | `getQuotes(symbols)` | Research | Stock quotes (price, bid/ask, P/E) |
-| `getFundamentals(symbols)` | Research | Market cap, 52-week range, sector |
+| `getFundamentals(symbols)` | Research | Market cap, valuation, dividends, 52-week range, sector |
 | `getNews(symbol)` | Research | Recent news articles |
 | `getRatings(symbol)` | Research | Analyst buy/hold/sell ratings |
 | `getEarnings(symbol)` | Research | Quarterly EPS history |

@@ -12,7 +12,7 @@ AI-native Robinhood trading interface — MCP server + TypeScript client library
 - **Runtime**: Bun
 - **Language**: TypeScript (strict mode, ESM-only)
 - **MCP SDK**: `@modelcontextprotocol/sdk` v1.12+ (McpServer + StdioServerTransport)
-- **Validation**: Zod v3.24 (API responses + MCP tool schemas)
+- **Validation**: Zod v3.24 — types API response shapes (cast, not runtime-parsed) + runtime-validates MCP tool-call params
 - **Testing**: Vitest (not `bun test` — module isolation matters)
 - **Linting**: Biome v2
 - **Browser Auth**: playwright-core (drives system Chrome, no bundled browser)

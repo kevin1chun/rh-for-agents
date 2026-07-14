@@ -70,10 +70,10 @@ const btc = await rh.getCryptoQuote("BTC");
 ## Research Methods
 
 ### `getQuotes(symbols): Promise<Quote[]>`
-Accepts single symbol or array. Returns `last_trade_price`, `bid_price`, `ask_price`, `previous_close`, `pe_ratio`.
+Accepts single symbol or array. Returns `last_trade_price`, `bid_price`, `ask_price`, `bid_size`, `ask_size`, `previous_close`, `pe_ratio`, `state` (trading status).
 
 ### `getFundamentals(symbols): Promise<Fundamental[]>`
-Returns `market_cap`, `pe_ratio`, `dividend_yield`, `high_52_weeks`, `low_52_weeks`, `description`, `ceo`, `sector`.
+Returns `market_cap`, `pe_ratio`, `pb_ratio`, `float`, `dividend_yield`, `high_52_weeks`, `low_52_weeks`, `description`, `ceo`, `sector`, plus a full dividend schedule (`dividend_per_share`, `ex_dividend_date`, `payable_date`, `distribution_frequency`).
 
 ### `getStockHistoricals(symbols, opts?): Promise<StockHistorical[]>`
 ```typescript
@@ -84,6 +84,7 @@ const hist = await rh.getStockHistoricals("AAPL", { interval: "day", span: "year
 ### `getNews(symbol): Promise<News[]>`
 ### `getRatings(symbol): Promise<Rating>`
 ### `getEarnings(symbol): Promise<Earnings[]>`
+EPS is nested under `eps` (`eps.estimate`, `eps.actual`) — not flat top-level fields (assuming flat returns `undefined`). Also includes `report` (date/timing) and `call` (datetime, replay_url).
 ### `findInstruments(query): Promise<Instrument[]>`
 
 ## Options Methods

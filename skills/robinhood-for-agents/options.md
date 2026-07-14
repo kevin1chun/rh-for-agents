@@ -72,7 +72,7 @@ const spx = await rh.getIndexValue("SPX");
 
 **Option instrument**: `strike_price`, `expiration_date`, `type` (call/put), `state`, `tradability`
 
-**Market data (greeks)**: `adjusted_mark_price`, `delta`, `gamma`, `theta`, `vega`, `rho`, `implied_volatility`, `open_interest`, `volume`, `chance_of_profit_long`, `chance_of_profit_short`
+**Market data (greeks)**: `adjusted_mark_price`, `delta`, `gamma`, `theta`, `vega`, `rho`, `implied_volatility`, `open_interest`, `volume`, `bid_size`, `ask_size`, `chance_of_profit_long`, `chance_of_profit_short`
 
 ## Placing Option Orders
 Before placing, get accounts and ask which to use. See [trade.md](trade.md) for the full option order flow.
