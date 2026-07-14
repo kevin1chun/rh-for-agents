@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-07-14
+
+### Fixed
+
+- **Schema accuracy pass** — every Zod schema returned by a `RobinhoodClient` method was diffed against a live API response and widened to match (`FundamentalSchema`, `QuoteSchema`, `EarningsSchema`, and 14 others). Type-only change: the client casts rather than parses, so this is zero runtime behavior change (#21)
+
+### Added
+
+- Gateway auth example, a follow-up to `AGENT-IDENTITY.md` (#20)
+
+### Changed
+
+- Updated skill docs (`client-api.md`, `research.md`, `options.md`, `reference.md`, `SKILL.md`) to surface the newly-typed fields from the schema accuracy pass; corrected a stale claim in `CLAUDE.md`/`docs/ARCHITECTURE.md` that Zod runtime-validates API responses — it only types them (client casts, not parses) and separately validates MCP tool-call parameters (#22)
+
 ## [0.6.2] - 2026-03-13
 
 ### Added

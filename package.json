@@ -1,6 +1,6 @@
 {
   "name": "robinhood-for-agents",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "type": "module",
   "description": "AI-native Robinhood trading interface — MCP server + TypeScript client",
   "license": "MIT",
