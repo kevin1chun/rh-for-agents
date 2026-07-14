@@ -31,7 +31,12 @@ vi.mock("../../src/client/index.js", () => {
     getInvestmentProfile: vi.fn().mockResolvedValue({ risk_tolerance: "moderate" }),
     buildHoldings: vi.fn().mockResolvedValue({ AAPL: { quantity: "10" } }),
     getQuotes: vi.fn().mockResolvedValue([{ symbol: "AAPL", last_trade_price: "150.00" }]),
-    getFundamentals: vi.fn().mockResolvedValue([{ pe_ratio: "25.5" }]),
+    getFundamentals: vi.fn().mockResolvedValue([{ pe_ratio: "25.5", float: "14669011375" }]),
+    getShortInterest: vi.fn().mockResolvedValue({
+      symbol: "AAPL",
+      instrument_id: "inst1",
+      daily_data: [{ date: "2026-07-13", shares_short: "141171395.64", pc_freefloat: "0.9628" }],
+    }),
     getStockHistoricals: vi
       .fn()
       .mockResolvedValue([
@@ -129,7 +134,7 @@ describe("MCP Server", () => {
     expect(server).toBeDefined();
   });
 
-  it("registers all 18 tools without throwing", () => {
+  it("registers all 20 tools without throwing", () => {
     createServer();
     expect(true).toBe(true);
   });
@@ -218,6 +223,18 @@ describe("Tool handlers return MCP content format", () => {
     });
     expect(quoteData.AAPL).toBeDefined();
     expect(quoteData.AAPL.quote).toEqual({ symbol: "AAPL", last_trade_price: "150.00" });
+
+    const fundamentalsData = await callTool(tools, "robinhood_get_fundamentals", {
+      symbols: "AAPL",
+    });
+    expect(fundamentalsData.AAPL).toEqual({ pe_ratio: "25.5", float: "14669011375" });
+
+    const shortData = await callTool(tools, "robinhood_get_short_interest", {
+      symbol: "AAPL",
+    });
+    expect(shortData.symbol).toBe("AAPL");
+    expect(shortData.short_interest.daily_data).toHaveLength(1);
+    expect(shortData.short_interest.daily_data[0].pc_freefloat).toBe("0.9628");
   });
 
   it("registerAuthTools handlers work", async () => {

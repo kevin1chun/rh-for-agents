@@ -119,9 +119,9 @@ Add to your MCP client's config (e.g. `~/Library/Application Support/Claude/clau
 
 Start your agent and say "setup robinhood" (or call `robinhood_browser_login` directly). Chrome will open to the real Robinhood login page — log in with your credentials and MFA. The session is cached and auto-restores for ~24 hours.
 
-## MCP Tools (18)
+## MCP Tools (20)
 
-All 18 tools work with every MCP-compatible agent.
+All 20 tools work with every MCP-compatible agent.
 
 | Tool | Description |
 |------|-------------|
@@ -131,6 +131,8 @@ All 18 tools work with every MCP-compatible agent.
 | `robinhood_get_accounts` | List all brokerage accounts |
 | `robinhood_get_account` | Account details and profile |
 | `robinhood_get_stock_quote` | Stock quotes and fundamentals |
+| `robinhood_get_fundamentals` | Fundamentals: float, shares outstanding, valuation, profile |
+| `robinhood_get_short_interest` | Daily short-interest estimate (% of float, with bounds) |
 | `robinhood_get_historicals` | OHLCV price history |
 | `robinhood_get_news` | News, analyst ratings, earnings |
 | `robinhood_get_movers` | Market movers and popular stocks |

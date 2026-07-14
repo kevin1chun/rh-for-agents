@@ -37,6 +37,8 @@ import type {
   Position,
   Quote,
   Rating,
+  ShortInterest,
+  ShortInterestDaily,
   StockHistorical,
   StockOrder,
   UserProfile,
@@ -314,6 +316,108 @@ export class RobinhoodClient {
       dataType: "results",
       params: { symbol: symbol.toUpperCase() },
     })) as Earnings[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Short Interest
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Robinhood's daily short-interest series for a stock: modeled shares short
+   * and short interest as a percent of free float, each with a confidence band
+   * (see {@link ShortInterest}). This is a modeled DAILY estimate, not the
+   * official biweekly FINRA settlement figure.
+   *
+   * The endpoint caps each request at a 92-day window, so this method walks
+   * backward from `endDate` in ≤90-day chunks and merges them into one series —
+   * callers never see the window limit. RH's series is present-anchored and
+   * contiguous (it began ~mid-2025), so the walk stops at the first empty
+   * window (the start of history); a `MAX_WINDOWS` cap bounds it to ~3 years as
+   * a backstop. Pass `startDate`/`endDate` (YYYY-MM-DD) to bound the range; omit
+   * `startDate` for full history. Returns `null` if the symbol resolves to no
+   * instrument or the endpoint has no data for it. Throws on a malformed/invalid
+   * date, a future `endDate`, or a `startDate` later than `endDate`.
+   */
+  async getShortInterest(
+    symbol: string,
+    opts?: { startDate?: string; endDate?: string },
+  ): Promise<ShortInterest | null> {
+    this.requireAuth();
+
+    // Validate the window up front so a bad value fails fast with a clear error
+    // rather than a raw RangeError from the date math or an opaque server 400.
+    const nowMs = Date.now();
+    const endMs = opts?.endDate ? parseIsoDateMs(opts.endDate, "endDate") : nowMs;
+    // A future endDate would put the first (most recent) window past the data
+    // frontier — it returns empty and the walk stops at null. Reject it rather
+    // than surprise the caller with a null for a range that has real data.
+    if (endMs > nowMs) {
+      throw new Error(`Invalid short-interest range: endDate (${opts?.endDate}) is in the future.`);
+    }
+    let floor: string | null = null;
+    if (opts?.startDate !== undefined) {
+      const startMs = parseIsoDateMs(opts.startDate, "startDate");
+      if (startMs > endMs) {
+        throw new Error(
+          `Invalid short-interest range: startDate (${opts.startDate}) is after endDate.`,
+        );
+      }
+      floor = opts.startDate;
+    }
+
+    // The endpoint is keyed on instrument ID, not symbol. Prefer the exact
+    // ticker match among search results (falling back to the first) so a fuzzy
+    // query can't resolve to the wrong instrument.
+    const sym = symbol.trim().toUpperCase();
+    const insts = await this.findInstruments(sym);
+    if (insts.length === 0) return null;
+    const inst = (insts.find((i) => (i.symbol ?? "").toUpperCase() === sym) ??
+      insts[0]) as Instrument;
+
+    // Server enforces start_date..end_date <= 92 days; stay safely under it.
+    const CHUNK_DAYS = 90;
+    // Runaway guard: bounds the walk to ~3 years even if the empty-window stop
+    // below never trips (a data shape RH has never served).
+    const MAX_WINDOWS = 12;
+
+    const byDate = new Map<string, ShortInterestDaily>();
+    let meta: Pick<ShortInterest, "symbol" | "instrument_id" | "exchange_symbol"> | null = null;
+
+    let windowEnd = new Date(endMs).toISOString().slice(0, 10);
+    for (let i = 0; i < MAX_WINDOWS; i++) {
+      const chunkStart = isoAddDays(windowEnd, -CHUNK_DAYS);
+      const windowStart = floor && floor > chunkStart ? floor : chunkStart;
+
+      const resp = (await requestGet(this.session, urls.shortInterest(), {
+        params: { ids: inst.id, start_date: windowStart, end_date: windowEnd },
+      })) as { status?: string; data?: Array<{ status?: string; data?: ShortInterest }> };
+
+      const chunk = resp.data?.[0]?.data ?? null;
+      const rows = chunk?.daily_data ?? [];
+      if (!chunk || rows.length === 0) {
+        // RH's series is present-anchored and contiguous, so the first empty
+        // window (walking backward) marks the start of history — or, on the
+        // very first window, a symbol with no short-interest data at all.
+        break;
+      }
+      meta ??= {
+        symbol: chunk.symbol,
+        instrument_id: chunk.instrument_id,
+        exchange_symbol: chunk.exchange_symbol,
+      };
+      for (const row of rows) byDate.set(row.date, row);
+
+      if (floor && windowStart <= floor) break;
+      windowEnd = isoAddDays(windowStart, -1); // step back a day; never re-fetch the boundary
+    }
+
+    if (byDate.size === 0) return null;
+    return {
+      symbol: meta?.symbol,
+      instrument_id: meta?.instrument_id,
+      exchange_symbol: meta?.exchange_symbol,
+      daily_data: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -911,4 +1015,21 @@ function normalizeSymbols(symbols: string | string[]): string[] {
       .filter(Boolean);
   }
   return symbols.map((s) => s.trim().toUpperCase());
+}
+
+/** Shift a YYYY-MM-DD date by `days` (negative = earlier), returning YYYY-MM-DD (UTC). */
+function isoAddDays(iso: string, days: number): string {
+  const ms = Date.parse(`${iso}T00:00:00Z`) + days * 24 * 60 * 60 * 1000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Parse a strict YYYY-MM-DD date to epoch ms (UTC); throws on a malformed or non-calendar date. */
+function parseIsoDateMs(iso: string, label: string): number {
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? Date.parse(`${iso}T00:00:00Z`) : Number.NaN;
+  // `Date.parse` rolls impossible days forward (e.g. 2026-02-30 → 2026-03-02), so
+  // require the parsed instant to render back to the same string — a real date.
+  if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== iso) {
+    throw new Error(`Invalid ${label}: expected a YYYY-MM-DD calendar date, got "${iso}"`);
+  }
+  return ms;
 }

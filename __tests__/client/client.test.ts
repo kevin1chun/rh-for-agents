@@ -630,6 +630,187 @@ describe("RobinhoodClient", () => {
     });
   });
 
+  describe("getShortInterest", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    const envelope = (daily: Array<Record<string, string>>) => ({
+      status: "SUCCESS",
+      data: [
+        {
+          status: "SUCCESS",
+          data: { symbol: "AAPL", instrument_id: "inst1", daily_data: daily },
+        },
+      ],
+    });
+
+    // Params of the nth requestGet call (1-indexed), for asserting the window.
+    const paramsOfCall = (n: number) =>
+      (mockRequestGet.mock.calls[n - 1]?.[2] as { params?: Record<string, string> })?.params;
+
+    it("resolves the instrument and fetches a single ≤92-day window", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "inst1", symbol: "AAPL" }]); // findInstruments
+      mockRequestGet.mockResolvedValueOnce(
+        envelope([{ date: "2026-07-13", shares_short: "141171395.64", pc_freefloat: "0.9628" }]),
+      );
+
+      const si = await client.getShortInterest("aapl", {
+        startDate: "2026-05-16",
+        endDate: "2026-06-14",
+      });
+
+      expect(si?.symbol).toBe("AAPL");
+      expect(si?.daily_data).toHaveLength(1);
+      expect(si?.daily_data[0]?.pc_freefloat).toBe("0.9628");
+
+      // One endpoint call (range < 92d), hitting short/v1 with ids + both dates.
+      expect(mockRequestGet).toHaveBeenCalledTimes(2);
+      expect(mockRequestGet).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.stringContaining("/marketdata/fundamentals/short/v1/"),
+        expect.objectContaining({
+          params: { ids: "inst1", start_date: "2026-05-16", end_date: "2026-06-14" },
+        }),
+      );
+    });
+
+    it("chunks a >92-day range into ≤90-day windows and merges by date", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "inst1", symbol: "AAPL" }]); // findInstruments
+      // Window 1: [2026-04-02 .. 2026-07-01]; window 2: [2026-01-01 .. 2026-04-01].
+      mockRequestGet.mockResolvedValueOnce(
+        envelope([
+          { date: "2026-06-15", pc_freefloat: "1.0" },
+          { date: "2026-04-02", pc_freefloat: "2.0" },
+        ]),
+      );
+      mockRequestGet.mockResolvedValueOnce(
+        envelope([
+          { date: "2026-04-02", pc_freefloat: "9.9" }, // duplicate date → last write wins
+          { date: "2026-02-01", pc_freefloat: "3.0" },
+        ]),
+      );
+
+      const si = await client.getShortInterest("AAPL", {
+        startDate: "2026-01-01",
+        endDate: "2026-07-01",
+      });
+
+      // Merged, de-duplicated by date, sorted ascending.
+      expect(si?.daily_data.map((d) => d.date)).toEqual(["2026-02-01", "2026-04-02", "2026-06-15"]);
+      expect(si?.daily_data.find((d) => d.date === "2026-04-02")?.pc_freefloat).toBe("9.9");
+
+      // Two non-overlapping ≤90-day windows walking backward.
+      expect(mockRequestGet).toHaveBeenCalledTimes(3);
+      expect(paramsOfCall(2)).toEqual({
+        ids: "inst1",
+        start_date: "2026-04-02",
+        end_date: "2026-07-01",
+      });
+      expect(paramsOfCall(3)).toEqual({
+        ids: "inst1",
+        start_date: "2026-01-01",
+        end_date: "2026-04-01",
+      });
+    });
+
+    it("stops walking back at the first empty window when fetching full history", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "inst1", symbol: "AAPL" }]); // findInstruments
+      mockRequestGet.mockResolvedValueOnce(envelope([{ date: "2026-06-15", pc_freefloat: "1.0" }]));
+      mockRequestGet.mockResolvedValueOnce(envelope([])); // older window: no data → stop
+
+      const si = await client.getShortInterest("AAPL", { endDate: "2026-07-14" });
+
+      expect(si?.daily_data).toHaveLength(1);
+      // findInstruments + 2 windows, then break (no endless paging into empty years).
+      expect(mockRequestGet).toHaveBeenCalledTimes(3);
+    });
+
+    it("prefers the exact ticker match among fuzzy search results", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "other", symbol: "AAPLW" },
+        { id: "inst1", symbol: "AAPL" },
+      ]);
+      mockRequestGet.mockResolvedValueOnce(envelope([{ date: "2026-06-15", pc_freefloat: "1.0" }]));
+      mockRequestGet.mockResolvedValueOnce(envelope([])); // stop
+
+      await client.getShortInterest("AAPL", { endDate: "2026-07-14" });
+
+      expect(paramsOfCall(2)?.ids).toBe("inst1");
+    });
+
+    it("returns null when the symbol resolves to no instrument", async () => {
+      mockRequestGet.mockResolvedValueOnce([]); // findInstruments empty
+      const si = await client.getShortInterest("NOPE");
+      expect(si).toBeNull();
+      // Short-circuits before hitting the endpoint.
+      expect(mockRequestGet).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns null when the instrument resolves but the endpoint has no data", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "inst1", symbol: "AAPL" }]);
+      mockRequestGet.mockResolvedValueOnce(envelope([])); // empty on the first window
+      const si = await client.getShortInterest("AAPL", { endDate: "2026-07-14" });
+      expect(si).toBeNull();
+    });
+
+    it("fetches a single window when startDate equals endDate", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "inst1", symbol: "AAPL" }]);
+      mockRequestGet.mockResolvedValueOnce(envelope([{ date: "2026-07-01", pc_freefloat: "1.0" }]));
+
+      await client.getShortInterest("AAPL", { startDate: "2026-07-01", endDate: "2026-07-01" });
+
+      expect(mockRequestGet).toHaveBeenCalledTimes(2);
+      expect(paramsOfCall(2)).toEqual({
+        ids: "inst1",
+        start_date: "2026-07-01",
+        end_date: "2026-07-01",
+      });
+    });
+
+    it("throws when startDate is after endDate (before any network call)", async () => {
+      await expect(
+        client.getShortInterest("AAPL", { startDate: "2026-07-01", endDate: "2026-01-01" }),
+      ).rejects.toThrow(/startDate .* is after endDate/);
+      // Rejected during validation — findInstruments was never called.
+      expect(mockRequestGet).not.toHaveBeenCalled();
+    });
+
+    it("throws on a calendar-invalid date rather than a raw RangeError", async () => {
+      await expect(client.getShortInterest("AAPL", { startDate: "2026-13-45" })).rejects.toThrow(
+        /Invalid startDate/,
+      );
+      expect(mockRequestGet).not.toHaveBeenCalled();
+    });
+
+    it("throws on a well-formed but non-existent calendar date (no Date.parse roll-forward)", async () => {
+      await expect(client.getShortInterest("AAPL", { startDate: "2026-02-30" })).rejects.toThrow(
+        /Invalid startDate/,
+      );
+      expect(mockRequestGet).not.toHaveBeenCalled();
+    });
+
+    it("throws when endDate is in the future (before any network call)", async () => {
+      await expect(client.getShortInterest("AAPL", { endDate: "2999-01-01" })).rejects.toThrow(
+        /endDate .* is in the future/,
+      );
+      expect(mockRequestGet).not.toHaveBeenCalled();
+    });
+
+    it("caps the walk at MAX_WINDOWS windows even when every window has data", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "inst1", symbol: "AAPL" }]); // findInstruments
+      // Every subsequent window returns data → the empty-window stop never fires,
+      // so only the MAX_WINDOWS (12) runaway guard bounds the loop.
+      mockRequestGet.mockResolvedValue(envelope([{ date: "2026-06-15", pc_freefloat: "1.0" }]));
+
+      await client.getShortInterest("AAPL", { endDate: "2026-07-14" });
+
+      // 1 findInstruments + at most 12 endpoint windows.
+      expect(mockRequestGet).toHaveBeenCalledTimes(13);
+    });
+  });
+
   describe("getQuotes (widened Quote fields)", () => {
     beforeEach(async () => {
       await client.restoreSession();

@@ -153,6 +153,16 @@ export function earnings(): string {
   return `${API_BASE}/marketdata/earnings/`;
 }
 
+/**
+ * Daily short-interest series. Keyed on instrument ID via the `ids` query
+ * param; accepts an optional `start_date` (YYYY-MM-DD). Returns a modeled
+ * daily estimate (with confidence bounds), not the official biweekly FINRA
+ * settlement figure.
+ */
+export function shortInterest(): string {
+  return `${API_BASE}/marketdata/fundamentals/short/v1/`;
+}
+
 export function tags(tag: string): string {
   return `${API_BASE}/midlands/tags/tag/${safeSegment(tag, "tag")}/`;
 }

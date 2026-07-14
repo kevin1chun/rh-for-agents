@@ -570,6 +570,42 @@ export const EarningsSchema = z.object({
 export type Earnings = z.infer<typeof EarningsSchema>;
 
 // ---------------------------------------------------------------------------
+// Short Interest
+// ---------------------------------------------------------------------------
+
+/**
+ * One day of Robinhood's modeled short-interest series.
+ *
+ * `shares_short` is a modeled estimate (not the official biweekly FINRA
+ * settlement figure), which is why each day carries an upper/lower confidence
+ * band. `pc_freefloat` is short interest as a **percent** of free float — the
+ * value `8.2275` means 8.2275%, i.e. divide by 100 for a fraction. All numeric
+ * fields arrive as strings, consistent with the rest of the Robinhood API.
+ */
+export const ShortInterestDailySchema = z.object({
+  date: z.string(),
+  shares_short: z.string().nullable().optional(),
+  shares_upper_bound: z.string().nullable().optional(),
+  shares_lower_bound: z.string().nullable().optional(),
+  pc_freefloat: z.string().nullable().optional(),
+  pc_freefloat_upper_bound: z.string().nullable().optional(),
+  pc_freefloat_lower_bound: z.string().nullable().optional(),
+});
+export type ShortInterestDaily = z.infer<typeof ShortInterestDailySchema>;
+
+/**
+ * Robinhood's per-instrument short-interest response (already unwrapped from
+ * the `{ status, data: [{ status, data }] }` envelope by the client).
+ */
+export const ShortInterestSchema = z.object({
+  symbol: z.string().optional(),
+  instrument_id: z.string().optional(),
+  exchange_symbol: z.string().nullable().optional(),
+  daily_data: z.array(ShortInterestDailySchema),
+});
+export type ShortInterest = z.infer<typeof ShortInterestSchema>;
+
+// ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
 

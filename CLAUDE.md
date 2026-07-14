@@ -4,7 +4,7 @@ AI-native Robinhood trading interface — MCP server + TypeScript client library
 
 ## Project Structure
 - `src/client/` — Robinhood API client (~50 async methods)
-- `src/server/` — MCP server with 18 tools
+- `src/server/` — MCP server with 20 tools
 - `bin/` — CLI entry point (`robinhood-for-agents`)
 - `skills/` — Claude Code skills for interactive use
 

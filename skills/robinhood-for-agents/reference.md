@@ -93,6 +93,36 @@ Get quote and fundamentals. Also works for index symbols (SPX, NDX, VIX, RUT, XS
 }
 ```
 
+### robinhood_get_fundamentals
+Get company fundamentals (no live quote). Use `robinhood_get_stock_quote` if you also need the current price.
+
+**Parameters:**
+- `symbols` (string, required) — comma-separated, e.g. "AAPL" or "AAPL,MSFT"
+
+**Response:** keyed by symbol; each value is the fundamentals object (`float`, `shares_outstanding`, `market_cap`, `pe_ratio`, `pb_ratio`, dividend schedule, `high_52_weeks`/`low_52_weeks`, `sector`, `industry`, `ceo`, `description`).
+
+### robinhood_get_short_interest
+Robinhood's **modeled daily** short-interest series — NOT the official biweekly FINRA figure. Each day has a point estimate plus upper/lower confidence bounds. History begins ~mid-2025; the client auto-pages the endpoint's 92-day window limit.
+
+**Parameters:**
+- `symbol` (string, required)
+- `start_date` (string, optional, YYYY-MM-DD) — narrows the series; omit for full history
+
+**Response:**
+```json
+{
+  "symbol": "AAPL",
+  "short_interest": {
+    "symbol": "AAPL",
+    "instrument_id": "...",
+    "daily_data": [
+      { "date": "2026-07-13", "shares_short": "141171395.64", "shares_upper_bound": "148709498.66", "shares_lower_bound": "133393566.55", "pc_freefloat": "0.9628" }
+    ]
+  }
+}
+```
+`pc_freefloat` is a percent (e.g. `0.9628` = 0.9628% of free float).
+
 ### robinhood_get_news
 Get news, analyst ratings, and earnings.
 

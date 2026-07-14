@@ -78,6 +78,58 @@ export function registerStockTools(server: McpServer): void {
   );
 
   server.tool(
+    "robinhood_get_fundamentals",
+    "Get company fundamentals for one or more stocks: float, shares outstanding, market cap, P/E and P/B ratios, dividend schedule, 52-week range, and company profile (sector, industry, CEO, description). Fundamentals only — no live quote; use robinhood_get_stock_quote if you also need the current price.",
+    {
+      symbols: z
+        .string()
+        .max(200)
+        .describe('Comma-separated ticker symbols (e.g. "AAPL" or "AAPL,MSFT,GOOGL").'),
+    },
+    async ({ symbols }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const symbolList = symbols.split(",").map((s) => s.trim().toUpperCase());
+        const fundamentals = await rh.getFundamentals(symbolList);
+
+        const results: Record<string, unknown> = {};
+        for (let i = 0; i < symbolList.length; i++) {
+          const sym = symbolList[i] as string;
+          results[sym] = fundamentals[i] ?? {};
+        }
+        return text(results);
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.tool(
+    "robinhood_get_short_interest",
+    "Get Robinhood's daily short-interest time series for a stock: modeled shares sold short and short interest as a percent of free float, each with upper/lower confidence bounds. NOTE: this is a modeled DAILY estimate (hence the bounds), NOT the official biweekly FINRA settlement figure. `pc_freefloat` is a percent (e.g. 8.23 = 8.23%). Omitting start_date returns the full available history (RH's series began ~mid-2025).",
+    {
+      symbol: z.string().describe('Stock ticker symbol (e.g. "AAPL").'),
+      start_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "start_date must be YYYY-MM-DD")
+        .optional()
+        .describe(
+          "Earliest date (YYYY-MM-DD) to include; narrows the series. Omit for full history.",
+        ),
+    },
+    async ({ symbol, start_date }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const sym = symbol.trim().toUpperCase();
+        const shortInterest = await rh.getShortInterest(sym, { startDate: start_date });
+        return text({ symbol: sym, short_interest: shortInterest });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.tool(
     "robinhood_get_news",
     "Get news, analyst ratings, and earnings for a stock symbol.",
     {
