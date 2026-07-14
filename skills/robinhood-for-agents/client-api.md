@@ -24,6 +24,8 @@ All methods are `async`. Multi-account is first-class: account-scoped methods ac
 | `robinhood_get_crypto` (positions) | `getCryptoPositions()` |
 | `robinhood_get_crypto` (quote) | `getCryptoQuote(symbol)` |
 | `robinhood_get_stock_quote` | `getQuotes(symbols)` + `getFundamentals(symbols)` |
+| `robinhood_get_fundamentals` | `getFundamentals(symbols)` |
+| `robinhood_get_short_interest` | `getShortInterest(symbol, opts?)` |
 | `robinhood_get_news` | `getNews(symbol)` + `getRatings(symbol)` + `getEarnings(symbol)` |
 | `robinhood_get_historicals` | `getStockHistoricals(symbols, opts?)` |
 | `robinhood_search` | `findInstruments(query)` |
@@ -80,6 +82,9 @@ Returns `market_cap`, `pe_ratio`, `pb_ratio`, `float`, `dividend_yield`, `high_5
 const hist = await rh.getStockHistoricals("AAPL", { interval: "day", span: "year", bounds: "regular" });
 // => [{ symbol, historicals: [{ begins_at, open_price, close_price, high_price, low_price, volume }] }]
 ```
+
+### `getShortInterest(symbol, opts?): Promise<ShortInterest | null>`
+Robinhood's **modeled daily** short-interest series (not the official biweekly FINRA figure). Returns `{ symbol, instrument_id, daily_data: [{ date, shares_short, shares_upper_bound, shares_lower_bound, pc_freefloat, pc_freefloat_upper_bound, pc_freefloat_lower_bound }] }`. `pc_freefloat` is a percent (e.g. `0.9628` = 0.9628%). `opts.startDate` / `opts.endDate` (YYYY-MM-DD) bound the range; omit `startDate` for full history. The endpoint caps each request at 92 days — the method auto-pages ≤90-day windows and merges them (RH's history begins ~mid-2025). Returns `null` if the symbol has no instrument or no data.
 
 ### `getNews(symbol): Promise<News[]>`
 ### `getRatings(symbol): Promise<Rating>`

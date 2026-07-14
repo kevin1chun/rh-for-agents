@@ -8,15 +8,16 @@ import { getClient } from "robinhood-for-agents";
 const rh = getClient();
 await rh.restoreSession();
 
-const [quotes, fundamentals, news, ratings, earnings, historicals] = await Promise.all([
+const [quotes, fundamentals, news, ratings, earnings, historicals, shortInterest] = await Promise.all([
   rh.getQuotes("AAPL"),
   rh.getFundamentals("AAPL"),
   rh.getNews("AAPL"),
   rh.getRatings("AAPL"),
   rh.getEarnings("AAPL"),
   rh.getStockHistoricals("AAPL", { interval: "day", span: "year" }),
+  rh.getShortInterest("AAPL"),
 ]);
-console.log(JSON.stringify({ quotes, fundamentals, news, ratings, earnings, historicals }, null, 2));
+console.log(JSON.stringify({ quotes, fundamentals, news, ratings, earnings, historicals, shortInterest }, null, 2));
 '
 ```
 
@@ -30,6 +31,7 @@ Index symbols (SPX, NDX, VIX, RUT, XSP) also work with `getQuotes()` — returns
 - **Ratings**: `summary.num_buy_ratings`, `summary.num_hold_ratings`, `summary.num_sell_ratings`
 - **Earnings**: `eps.estimate`, `eps.actual`, `year`, `quarter`
 - **Historicals**: Array of `{ begins_at, open_price, close_price, high_price, low_price, volume }`
+- **Short interest** (`getShortInterest`): `daily_data[]` of `{ date, shares_short, pc_freefloat }` (+ upper/lower bounds). Modeled DAILY estimate, not the official FINRA figure; `pc_freefloat` is a percent. History begins ~mid-2025
 
 ## Output Structure
 1. **Company Overview**: Name, sector, industry, market cap, description

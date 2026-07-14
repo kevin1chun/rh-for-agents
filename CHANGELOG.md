@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Short-interest API** — `getShortInterest(symbol, opts?)` client method + `robinhood_get_short_interest` MCP tool. Returns Robinhood's modeled daily short-interest series (`shares_short` and `pc_freefloat`, each with upper/lower confidence bounds) — a modeled estimate, **not** the official biweekly FINRA settlement figure. The endpoint caps each request at a 92-day window; the client transparently walks backward in ≤90-day chunks and merges them, so callers get the full available series (RH's history begins ~mid-2025) in one call. New `ShortInterest` / `ShortInterestDaily` types + schemas.
+- **Fundamentals MCP tool** — `robinhood_get_fundamentals` surfaces the existing `getFundamentals()` data (float, shares outstanding, market cap, P/E, P/B, dividend schedule, 52-week range, company profile) as a standalone tool, without the live quote that `robinhood_get_stock_quote` bundles.
+
 ## [0.7.2] - 2026-07-14
 
 ### Fixed
