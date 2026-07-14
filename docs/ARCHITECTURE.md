@@ -44,7 +44,7 @@
 | **Bun** | Native TS execution, fast startup, built-in fetch |
 | **ESM-only** | Bun is ESM-native, no CJS needed |
 | **@modelcontextprotocol/sdk** | Official MCP SDK, StdioServerTransport for agent compatibility |
-| **Zod v3.24** | Runtime validation of API responses + MCP tool parameter schemas |
+| **Zod v3.24** | Types API response shapes (client casts, not runtime-parsed) + runtime-validates MCP tool parameters |
 | **Vitest** | Fast TS-native testing, correct module isolation via `vi.mock()` |
 | **Biome v2** | All-in-one lint + format, 10-25x faster than ESLint |
 | **Bun.secrets** | OS keychain access (macOS Keychain Services, Linux libsecret) |
@@ -413,5 +413,5 @@ Stock order payloads include `order_form_version: 7` (required by the Robinhood 
 | **No phoenix.robinhood.com** | TLS handshake fails. `api.robinhood.com` has equivalent data. |
 | **Unified order methods** | `orderStock()` with optional params vs 10 separate `orderBuyMarket()` etc. |
 | **Vitest over bun test** | Proper module isolation via worker processes. Critical for mocking. |
-| **Zod schemas** | Runtime validation of all API responses -- Python version lacked this. |
+| **Zod schemas** | Type API response shapes for TS consumers -- the client casts rather than `.parse()`s, so zero runtime overhead (caveat: an under-declared schema silently hides real response fields from the TS types without erroring). Opt-in `parseOne`/`parseArray` helpers in `src/client/http.ts` runtime-validate when a caller wants it. MCP tool-call parameters, by contrast, ARE runtime-validated via the same library. |
 | **ESM-only** | Bun is ESM-native, no CJS compatibility needed. |

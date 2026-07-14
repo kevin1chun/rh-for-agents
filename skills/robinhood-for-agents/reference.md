@@ -88,7 +88,7 @@ Get quote and fundamentals. Also works for index symbols (SPX, NDX, VIX, RUT, XS
 {
   "AAPL": {
     "quote": { "last_trade_price": "150.00", "bid_price": "149.90", "ask_price": "150.10", "previous_close": "148.00", "pe_ratio": "25.5" },
-    "fundamentals": { "market_cap": "2500000000000", "dividend_yield": "0.55", "high_52_weeks": "180.00", "low_52_weeks": "120.00" }
+    "fundamentals": { "market_cap": "2500000000000", "pb_ratio": "45.20", "dividend_yield": "0.55", "high_52_weeks": "180.00", "low_52_weeks": "120.00" }
   }
 }
 ```
