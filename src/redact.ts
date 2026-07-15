@@ -71,6 +71,42 @@ export function scrubAccountIdentifiers<T>(value: T): T {
   return value;
 }
 
+// Account objects (from get_accounts / get_account) carry `account_number` as
+// their canonical, intentionally-visible identifier — callers need it to
+// select an account in later tool calls. But the same objects also embed the
+// identical identifier a second and third time, in `url`/`can_downgrade_to_cash`
+// (a `/accounts/{id}/...` URL) and the legacy numeric `rhs_account_number`.
+// Nothing in this codebase ever reads those three back — every client method
+// that accepts an accountNumber rebuilds any URL it needs internally (see
+// resolveAccountUrl) — so they're pure redundant exposure. Scoped to only
+// fire alongside a sibling `account_number` key, so it never touches the
+// `account` URL field on positions/orders, which IS the sole identifier
+// there (no parallel plain field) and is load-bearing for multi-account
+// attribution.
+const REDUNDANT_ACCOUNT_OBJECT_KEYS = new Set([
+  "url",
+  "can_downgrade_to_cash",
+  "rhs_account_number",
+]);
+
+/** Strip redundant account-identifier fields, keeping `account_number` itself intact. */
+export function scrubRedundantAccountFields<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((v) => scrubRedundantAccountFields(v)) as unknown as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const isAccountShaped = "account_number" in obj;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (isAccountShaped && REDUNDANT_ACCOUNT_OBJECT_KEYS.has(k)) continue;
+      out[k] = scrubRedundantAccountFields(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}
+
 const SENSITIVE_KEYS = new Set([
   "access_token",
   "refresh_token",

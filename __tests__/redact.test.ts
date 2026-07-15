@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { redactTokens, scrubAccountIdentifiers, scrubSensitiveKeys } from "../src/redact.js";
+import {
+  redactTokens,
+  scrubAccountIdentifiers,
+  scrubRedundantAccountFields,
+  scrubSensitiveKeys,
+} from "../src/redact.js";
 
 describe("redactTokens", () => {
   const fakeJwt =
@@ -160,5 +165,64 @@ describe("scrubAccountIdentifiers", () => {
     expect(scrubAccountIdentifiers(42)).toBe(42);
     expect(scrubAccountIdentifiers(null)).toBe(null);
     expect(scrubAccountIdentifiers("plain string")).toBe("plain string");
+  });
+});
+
+describe("scrubRedundantAccountFields", () => {
+  it("drops url/can_downgrade_to_cash/rhs_account_number but keeps account_number", () => {
+    const account = {
+      account_number: "1AB23456",
+      url: "https://api.robinhood.com/accounts/1AB23456/",
+      can_downgrade_to_cash: "https://api.robinhood.com/accounts/1AB23456/can_downgrade_to_cash/",
+      rhs_account_number: 123456789,
+      type: "cash",
+    };
+    const result = scrubRedundantAccountFields(account) as Record<string, unknown>;
+    expect(result.account_number).toBe("1AB23456");
+    expect(result.type).toBe("cash");
+    expect(result.url).toBeUndefined();
+    expect(result.can_downgrade_to_cash).toBeUndefined();
+    expect(result.rhs_account_number).toBeUndefined();
+  });
+
+  it("leaves the account URL field on positions/orders untouched (no sibling account_number, it's the sole identifier)", () => {
+    const position = {
+      url: "https://api.robinhood.com/positions/xyz/",
+      account: "https://api.robinhood.com/accounts/1AB23456/",
+      quantity: "10.0000",
+    };
+    const result = scrubRedundantAccountFields(position) as Record<string, unknown>;
+    expect(result.account).toBe("https://api.robinhood.com/accounts/1AB23456/");
+    expect(result.url).toBe("https://api.robinhood.com/positions/xyz/");
+  });
+
+  it("recurses into arrays of accounts", () => {
+    const body = {
+      accounts: [
+        {
+          account_number: "A",
+          url: "https://api.robinhood.com/accounts/A/",
+          rhs_account_number: 1,
+        },
+        {
+          account_number: "B",
+          url: "https://api.robinhood.com/accounts/B/",
+          rhs_account_number: 2,
+        },
+      ],
+    };
+    const result = scrubRedundantAccountFields(body) as {
+      accounts: Array<Record<string, unknown>>;
+    };
+    expect(result.accounts[0]?.account_number).toBe("A");
+    expect(result.accounts[0]?.url).toBeUndefined();
+    expect(result.accounts[0]?.rhs_account_number).toBeUndefined();
+    expect(result.accounts[1]?.account_number).toBe("B");
+  });
+
+  it("passes primitives through unchanged", () => {
+    expect(scrubRedundantAccountFields(42)).toBe(42);
+    expect(scrubRedundantAccountFields(null)).toBe(null);
+    expect(scrubRedundantAccountFields("plain string")).toBe("plain string");
   });
 });

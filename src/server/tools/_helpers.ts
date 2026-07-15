@@ -1,7 +1,7 @@
 /** Shared helpers for MCP tool handlers. */
 
 import { getClient } from "../../client/index.js";
-import { redactTokens } from "../../redact.js";
+import { redactTokens, scrubRedundantAccountFields } from "../../redact.js";
 
 /**
  * Success-path result helper for tools with an `outputSchema`. Serializes +
@@ -14,7 +14,7 @@ import { redactTokens } from "../../redact.js";
  * independently, which could drift).
  */
 export function structured(data: unknown) {
-  const redactedJson = redactTokens(JSON.stringify(data));
+  const redactedJson = redactTokens(JSON.stringify(scrubRedundantAccountFields(data)));
   return {
     content: [{ type: "text" as const, text: redactedJson }],
     structuredContent: JSON.parse(redactedJson) as Record<string, unknown>,

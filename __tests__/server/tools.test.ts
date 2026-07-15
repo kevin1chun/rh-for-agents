@@ -401,9 +401,11 @@ describe("Tool handlers return MCP content format", () => {
     expect(tools.robinhood_get_account).toBeDefined();
 
     const accountsData = await callTool(tools, "robinhood_get_accounts");
+    // url is a redundant copy of account_number (same identifier, URL-wrapped) and
+    // is stripped by scrubRedundantAccountFields; account_number itself is kept —
+    // callers need it to select an account in later tool calls.
     expect(accountsData.accounts).toEqual([
       {
-        url: "https://api.robinhood.com/accounts/ABC123/",
         account_number: "ABC123",
         type: "cash",
       },
