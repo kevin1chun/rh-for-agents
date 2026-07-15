@@ -22,7 +22,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { RealizedPnlData, RealizedPnlTrade } from "../../client/index.js";
 import { bucketRealized, type Granularity } from "../../compute/realized-pnl.js";
-import { getAuthenticatedRh, text, textError } from "./_helpers.js";
+import { getAuthenticatedRh, structured, textError } from "./_helpers.js";
 
 const READ_ONLY = { readOnlyHint: true } as const;
 
@@ -117,29 +117,50 @@ function buildNote(data: RealizedPnlData, optionsRequested: boolean, perTrade: b
 }
 
 export function registerPnlTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "robinhood_get_realized_pnl",
-    "Realized profit & loss for an account over a time window — bucketed realized gain and the number of closing trades per bucket, plus window totals. COMPUTED by this server from your order history (Robinhood has no realized-P&L REST endpoint): equity uses independent economic FIFO including fees (not Robinhood's booked/tax number), crypto uses Robinhood's native gain_loss, and options are NOT included. rate_of_realized_gain and total_rate_of_return are returned as null — see the result `note`. Fetches full order history, so it can be slow on large accounts. For the per-trade list use robinhood_get_pnl_trade_history.",
     {
-      account_number: z
-        .string()
-        .describe("Brokerage account number (from robinhood_get_accounts)."),
-      asset_classes: z
-        .array(ASSET_CLASS)
-        .optional()
-        .describe("Filter to equity/crypto (option is accepted but not computed). Omit for all."),
-      span: z
-        .enum(["day", "week", "month", "3month", "year", "all"])
-        .optional()
-        .describe("Preset window (default 3month). Mutually exclusive with start_date/end_date."),
-      start_date: z
-        .string()
-        .optional()
-        .describe("Custom window start, YYYY-MM-DD (with end_date)."),
-      end_date: z.string().optional().describe("Custom window end, YYYY-MM-DD, inclusive."),
-      display_currency: z.string().optional().describe("Currency for amounts; USD only."),
+      title: "Get Realized P&L",
+      description:
+        "Realized profit & loss for an account over a time window — bucketed realized gain and the number of closing trades per bucket, plus window totals. COMPUTED by this server from your order history (Robinhood has no realized-P&L REST endpoint): equity uses independent economic FIFO including fees (not Robinhood's booked/tax number), crypto uses Robinhood's native gain_loss, and options are NOT included. rate_of_realized_gain and total_rate_of_return are returned as null — see the result `note`. Fetches full order history, so it can be slow on large accounts. For the per-trade list use robinhood_get_pnl_trade_history.",
+      inputSchema: {
+        account_number: z
+          .string()
+          .describe("Brokerage account number (from robinhood_get_accounts)."),
+        asset_classes: z
+          .array(ASSET_CLASS)
+          .optional()
+          .describe("Filter to equity/crypto (option is accepted but not computed). Omit for all."),
+        span: z
+          .enum(["day", "week", "month", "3month", "year", "all"])
+          .optional()
+          .describe("Preset window (default 3month). Mutually exclusive with start_date/end_date."),
+        start_date: z
+          .string()
+          .optional()
+          .describe("Custom window start, YYYY-MM-DD (with end_date)."),
+        end_date: z.string().optional().describe("Custom window end, YYYY-MM-DD, inclusive."),
+        display_currency: z.string().optional().describe("Currency for amounts; USD only."),
+      },
+      outputSchema: {
+        account_number: z.string(),
+        window: z.string(),
+        display_currency: z.string(),
+        data_points: z.array(
+          z.object({
+            start_time: z.string(),
+            end_time: z.string(),
+            realized_gain: z.number(),
+            rate_of_realized_gain: z.null(),
+            number_of_trades: z.number(),
+          }),
+        ),
+        total_returns: z.number(),
+        total_rate_of_return: z.null(),
+        note: z.string(),
+      },
+      annotations: READ_ONLY,
     },
-    READ_ONLY,
     async ({ account_number, asset_classes, span, start_date, end_date, display_currency }) => {
       try {
         const { data, optionsRequested } = await fetchRealized(account_number, asset_classes);
@@ -152,7 +173,7 @@ export function registerPnlTools(server: McpServer): void {
         const inWindow = data.trades.filter((t) => t.closedAt >= start && t.closedAt < end);
         const buckets = bucketRealized(inWindow, start, end, granularity);
         const total_returns = inWindow.reduce((s, t) => s + t.realizedGain, 0);
-        return text({
+        return structured({
           account_number,
           window,
           display_currency: display_currency ?? "USD",
@@ -173,23 +194,42 @@ export function registerPnlTools(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_pnl_trade_history",
-    "Per-trade realized profit & loss — a chronological list of closing trades with symbol, side, quantity, price, and realized gain/loss. COMPUTED by this server from your order history: equity uses independent economic FIFO including fees (not Robinhood's booked/tax number), crypto uses Robinhood's native gain_loss, and options are NOT included. Results are complete (next_cursor is always null). For bucketed totals use robinhood_get_realized_pnl.",
     {
-      account_number: z
-        .string()
-        .describe("Brokerage account number (from robinhood_get_accounts)."),
-      span: z
-        .enum(["week", "month", "3month", "ytd", "all"])
-        .optional()
-        .describe("Preset window (default week)."),
-      symbol: z
-        .string()
-        .optional()
-        .describe("Optional single stock/crypto symbol filter (uppercased)."),
+      title: "Get P&L Trade History",
+      description:
+        "Per-trade realized profit & loss — a chronological list of closing trades with symbol, side, quantity, price, and realized gain/loss. COMPUTED by this server from your order history: equity uses independent economic FIFO including fees (not Robinhood's booked/tax number), crypto uses Robinhood's native gain_loss, and options are NOT included. Results are complete (next_cursor is always null). For bucketed totals use robinhood_get_realized_pnl.",
+      inputSchema: {
+        account_number: z
+          .string()
+          .describe("Brokerage account number (from robinhood_get_accounts)."),
+        span: z
+          .enum(["week", "month", "3month", "ytd", "all"])
+          .optional()
+          .describe("Preset window (default week)."),
+        symbol: z
+          .string()
+          .optional()
+          .describe("Optional single stock/crypto symbol filter (uppercased)."),
+      },
+      outputSchema: {
+        account_number: z.string(),
+        span: z.string(),
+        trades: z.array(
+          z.object({
+            symbol: z.string(),
+            side: z.string(),
+            quantity: z.number(),
+            price: z.number(),
+            realized_gain: z.number(),
+          }),
+        ),
+        next_cursor: z.null(),
+        note: z.string(),
+      },
+      annotations: READ_ONLY,
     },
-    READ_ONLY,
     async ({ account_number, span, symbol }) => {
       try {
         const { data, optionsRequested } = await fetchRealized(account_number, undefined);
@@ -206,7 +246,7 @@ export function registerPnlTools(server: McpServer): void {
             t.closedAt < end &&
             (wantSymbol === undefined || t.symbol.toUpperCase() === wantSymbol),
         );
-        return text({
+        return structured({
           account_number,
           span: window,
           trades: inWindow.map((t) => ({

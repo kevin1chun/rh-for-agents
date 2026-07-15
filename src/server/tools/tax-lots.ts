@@ -18,38 +18,50 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { scrubAccountIdentifiers } from "../../redact.js";
-import { getAuthenticatedRh, text, textError } from "./_helpers.js";
+import { getAuthenticatedRh, structured, textError } from "./_helpers.js";
 
 const READ_ONLY = { readOnlyHint: true } as const;
 
 export function registerTaxLotTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "robinhood_get_equity_tax_lots",
-    "List the open tax lots for one equity holding in an account — each lot is a separate acquisition with its own quantity, cost basis, acquisition date, and long/short-term status (`term`). Use it for cost-basis, holding-period, or which-lots-would-sell questions. Requires a symbol (tax lots are tracked per instrument, one symbol per call). Results are complete — all lots are returned and `next_cursor` is always null.",
     {
-      account_number: z
-        .string()
-        .describe(
-          "Brokerage account number whose lots you want (from robinhood_get_accounts). Must come from the user or be clearly implied.",
-        ),
-      symbol: z
-        .string()
-        .describe("Ticker symbol of the holding, e.g. AAPL. Tax lots are per instrument."),
-      cursor: z
-        .string()
-        .nullish()
-        .describe(
-          "Accepted for API parity only — this server returns complete results, so pagination is unnecessary and next_cursor is always null.",
-        ),
+      title: "Get Equity Tax Lots",
+      description:
+        "List the open tax lots for one equity holding in an account — each lot is a separate acquisition with its own quantity, cost basis, acquisition date, and long/short-term status (`term`). Use it for cost-basis, holding-period, or which-lots-would-sell questions. Requires a symbol (tax lots are tracked per instrument, one symbol per call). Results are complete — all lots are returned and `next_cursor` is always null.",
+      inputSchema: {
+        account_number: z
+          .string()
+          .describe(
+            "Brokerage account number whose lots you want (from robinhood_get_accounts). Must come from the user or be clearly implied.",
+          ),
+        symbol: z
+          .string()
+          .describe("Ticker symbol of the holding, e.g. AAPL. Tax lots are per instrument."),
+        cursor: z
+          .string()
+          .nullish()
+          .describe(
+            "Accepted for API parity only — this server returns complete results, so pagination is unnecessary and next_cursor is always null.",
+          ),
+      },
+      outputSchema: {
+        account_number: z.string(),
+        symbol: z.string(),
+        count: z.number(),
+        tax_lots: z.array(z.unknown()),
+        next_cursor: z.null(),
+        note: z.string(),
+      },
+      annotations: READ_ONLY,
     },
-    READ_ONLY,
     async ({ account_number, symbol }) => {
       try {
         const rh = await getAuthenticatedRh();
         const lots = await rh.getEquityTaxLots(symbol, { accountNumber: account_number });
         // Drop the per-lot account_number key; echo only the caller-supplied one.
         const scrubbed = scrubAccountIdentifiers(lots);
-        return text({
+        return structured({
           account_number,
           symbol: symbol.trim().toUpperCase(),
           count: scrubbed.length,

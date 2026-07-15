@@ -2,18 +2,30 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getAuthenticatedRh, text, textError } from "./_helpers.js";
+import { getAuthenticatedRh, structured, textError } from "./_helpers.js";
+
+const READ_ONLY = { readOnlyHint: true } as const;
 
 export function registerMarketTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "robinhood_get_movers",
-    "Get market movers and popular stocks.",
     {
-      category: z
-        .enum(["top_movers", "sp500", "top_100"])
-        .default("top_movers")
-        .describe("What to fetch."),
-      direction: z.enum(["up", "down"]).optional().describe("For sp500 movers - direction."),
+      title: "Get Market Movers",
+      description: "Get market movers and popular stocks.",
+      inputSchema: {
+        category: z
+          .enum(["top_movers", "sp500", "top_100"])
+          .default("top_movers")
+          .describe("What to fetch."),
+        direction: z.enum(["up", "down"]).optional().describe("For sp500 movers - direction."),
+      },
+      outputSchema: {
+        category: z.string(),
+        direction: z.string().optional(),
+        movers: z.array(z.unknown()).optional(),
+        stocks: z.array(z.unknown()).optional(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ category, direction }) => {
       try {
@@ -24,48 +36,62 @@ export function registerMarketTools(server: McpServer): void {
             return textError("direction ('up' or 'down') is required for sp500 movers");
           }
           const data = await rh.getTopMoversSp500(direction);
-          return text({ category: "sp500", direction, movers: data });
+          return structured({ category: "sp500", direction, movers: data });
         }
 
         if (category === "top_100") {
           const data = await rh.getTop100();
-          return text({ category: "top_100", stocks: data });
+          return structured({ category: "top_100", stocks: data });
         }
 
         const data = await rh.getTopMovers();
-        return text({ category: "top_movers", movers: data });
+        return structured({ category: "top_movers", movers: data });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_indexes",
-    "Get all tradable market indexes (SPX, NDX, VIX, RUT, XSP, …).",
-    {},
+    {
+      title: "Get Market Indexes",
+      description: "Get all tradable market indexes (SPX, NDX, VIX, RUT, XSP, …).",
+      inputSchema: {},
+      outputSchema: {
+        indexes: z.array(z.unknown()),
+      },
+      annotations: READ_ONLY,
+    },
     async () => {
       try {
         const rh = await getAuthenticatedRh();
         const indexes = await rh.getIndexInstruments();
-        return text({ indexes });
+        return structured({ indexes });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_index_quotes",
-    "Get current values for one or more index symbols.",
     {
-      symbols: z.array(z.string()).min(1).describe('Index symbols, e.g. ["SPX", "VIX"].'),
+      title: "Get Index Quotes",
+      description: "Get current values for one or more index symbols.",
+      inputSchema: {
+        symbols: z.array(z.string()).min(1).describe('Index symbols, e.g. ["SPX", "VIX"].'),
+      },
+      outputSchema: {
+        quotes: z.array(z.unknown()),
+      },
+      annotations: READ_ONLY,
     },
     async ({ symbols }) => {
       try {
         const rh = await getAuthenticatedRh();
         const quotes = await rh.getIndexQuotes(symbols);
-        return text({ quotes });
+        return structured({ quotes });
       } catch (e) {
         return textError(String(e));
       }

@@ -2,47 +2,68 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getAuthenticatedRh, text, textError } from "./_helpers.js";
+import { getAuthenticatedRh, structured, textError } from "./_helpers.js";
+
+const READ_ONLY = { readOnlyHint: true } as const;
+const PLACE_ORDER_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+} as const;
+const CANCEL_ORDER_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: true,
+} as const;
 
 export function registerOrderTools(server: McpServer): void {
   // -------------------------------------------------------------------------
   // Place stock order
   // -------------------------------------------------------------------------
-  server.tool(
+  server.registerTool(
     "robinhood_place_stock_order",
-    "Place a stock order. Requires explicit parameters — no dangerous defaults. Always confirm with the user before calling.",
     {
-      symbol: z.string().describe("Stock ticker symbol (e.g. AAPL)."),
-      side: z.enum(["buy", "sell"]).describe("Order side."),
-      quantity: z.number().positive().describe("Number of shares (supports fractional)."),
-      limit_price: z
-        .number()
-        .positive()
-        .optional()
-        .describe("Limit price. Required for limit and stop-limit orders."),
-      stop_price: z
-        .number()
-        .positive()
-        .optional()
-        .describe("Stop price. Required for stop and stop-limit orders."),
-      trail_amount: z
-        .number()
-        .positive()
-        .optional()
-        .describe("Trailing stop amount. Sets order type to trailing stop."),
-      trail_type: z
-        .enum(["percentage", "amount"])
-        .default("percentage")
-        .describe("Trailing stop type."),
-      time_in_force: z
-        .enum(["gtc", "gfd"])
-        .describe(
-          "Time in force: 'gfd' (good for day, safer) or 'gtc' (good till cancelled). Required.",
-        ),
-      extended_hours: z.boolean().default(false).describe("Allow extended hours execution."),
-      account_number: z
-        .string()
-        .describe("Robinhood account number. Get from robinhood_get_accounts."),
+      title: "Place Stock Order",
+      description:
+        "Place a stock order. Requires explicit parameters — no dangerous defaults. Always confirm with the user before calling.",
+      inputSchema: {
+        symbol: z.string().describe("Stock ticker symbol (e.g. AAPL)."),
+        side: z.enum(["buy", "sell"]).describe("Order side."),
+        quantity: z.number().positive().describe("Number of shares (supports fractional)."),
+        limit_price: z
+          .number()
+          .positive()
+          .optional()
+          .describe("Limit price. Required for limit and stop-limit orders."),
+        stop_price: z
+          .number()
+          .positive()
+          .optional()
+          .describe("Stop price. Required for stop and stop-limit orders."),
+        trail_amount: z
+          .number()
+          .positive()
+          .optional()
+          .describe("Trailing stop amount. Sets order type to trailing stop."),
+        trail_type: z
+          .enum(["percentage", "amount"])
+          .default("percentage")
+          .describe("Trailing stop type."),
+        time_in_force: z
+          .enum(["gtc", "gfd"])
+          .describe(
+            "Time in force: 'gfd' (good for day, safer) or 'gtc' (good till cancelled). Required.",
+          ),
+        extended_hours: z.boolean().default(false).describe("Allow extended hours execution."),
+        account_number: z
+          .string()
+          .describe("Robinhood account number. Get from robinhood_get_accounts."),
+      },
+      outputSchema: {
+        status: z.string(),
+        order: z.unknown(),
+      },
+      annotations: PLACE_ORDER_ANNOTATIONS,
     },
     async ({
       symbol,
@@ -67,7 +88,7 @@ export function registerOrderTools(server: McpServer): void {
           extendedHours: extended_hours,
           accountNumber: account_number,
         });
-        return text({ status: "submitted", order });
+        return structured({ status: "submitted", order });
       } catch (e) {
         return textError(String(e));
       }
@@ -77,39 +98,48 @@ export function registerOrderTools(server: McpServer): void {
   // -------------------------------------------------------------------------
   // Place option order (single-leg or multi-leg spreads)
   // -------------------------------------------------------------------------
-  server.tool(
+  server.registerTool(
     "robinhood_place_option_order",
-    "Place a single-leg or multi-leg option order (verticals, iron condors, straddles, etc.). Always confirm with the user before calling.",
     {
-      symbol: z.string().describe("Underlying stock ticker symbol."),
-      legs: z
-        .array(
-          z.object({
-            expiration_date: z.string().describe("Expiration date (YYYY-MM-DD)."),
-            strike: z.number().describe("Strike price."),
-            option_type: z.enum(["call", "put"]).describe("Option type."),
-            side: z.enum(["buy", "sell"]).describe("Buy or sell this leg."),
-            position_effect: z.enum(["open", "close"]).describe("Opening or closing."),
-            ratio_quantity: z.number().default(1).describe("Ratio quantity for this leg."),
-          }),
-        )
-        .describe("Option legs. Single-leg for simple orders, multiple legs for spreads."),
-      price: z
-        .number()
-        .positive()
-        .describe("Limit price per contract (single-leg) or net price (spreads)."),
-      quantity: z.number().positive().describe("Number of contracts."),
-      direction: z
-        .enum(["debit", "credit"])
-        .describe("Debit for buys/debit spreads, credit for sells/credit spreads."),
-      stop_price: z
-        .number()
-        .optional()
-        .describe("Stop price. When set, order triggers as stop-limit."),
-      time_in_force: z.enum(["gtc", "gfd", "ioc", "opg"]).describe("Time in force. Required."),
-      account_number: z
-        .string()
-        .describe("Robinhood account number. Get from robinhood_get_accounts."),
+      title: "Place Option Order",
+      description:
+        "Place a single-leg or multi-leg option order (verticals, iron condors, straddles, etc.). Always confirm with the user before calling.",
+      inputSchema: {
+        symbol: z.string().describe("Underlying stock ticker symbol."),
+        legs: z
+          .array(
+            z.object({
+              expiration_date: z.string().describe("Expiration date (YYYY-MM-DD)."),
+              strike: z.number().describe("Strike price."),
+              option_type: z.enum(["call", "put"]).describe("Option type."),
+              side: z.enum(["buy", "sell"]).describe("Buy or sell this leg."),
+              position_effect: z.enum(["open", "close"]).describe("Opening or closing."),
+              ratio_quantity: z.number().default(1).describe("Ratio quantity for this leg."),
+            }),
+          )
+          .describe("Option legs. Single-leg for simple orders, multiple legs for spreads."),
+        price: z
+          .number()
+          .positive()
+          .describe("Limit price per contract (single-leg) or net price (spreads)."),
+        quantity: z.number().positive().describe("Number of contracts."),
+        direction: z
+          .enum(["debit", "credit"])
+          .describe("Debit for buys/debit spreads, credit for sells/credit spreads."),
+        stop_price: z
+          .number()
+          .optional()
+          .describe("Stop price. When set, order triggers as stop-limit."),
+        time_in_force: z.enum(["gtc", "gfd", "ioc", "opg"]).describe("Time in force. Required."),
+        account_number: z
+          .string()
+          .describe("Robinhood account number. Get from robinhood_get_accounts."),
+      },
+      outputSchema: {
+        status: z.string(),
+        order: z.unknown(),
+      },
+      annotations: PLACE_ORDER_ANNOTATIONS,
     },
     async ({
       symbol,
@@ -142,7 +172,7 @@ export function registerOrderTools(server: McpServer): void {
             accountNumber: account_number,
           },
         );
-        return text({ status: "submitted", order });
+        return structured({ status: "submitted", order });
       } catch (e) {
         return textError(String(e));
       }
@@ -152,28 +182,36 @@ export function registerOrderTools(server: McpServer): void {
   // -------------------------------------------------------------------------
   // Place crypto order
   // -------------------------------------------------------------------------
-  server.tool(
+  server.registerTool(
     "robinhood_place_crypto_order",
-    "Place a crypto order. Always confirm with the user before calling.",
     {
-      symbol: z.string().describe('Crypto symbol (e.g. "BTC", "ETH").'),
-      side: z.enum(["buy", "sell"]).describe("Order side."),
-      amount_or_quantity: z
-        .number()
-        .positive()
-        .describe("Quantity or dollar amount depending on amount_in."),
-      amount_in: z
-        .enum(["quantity", "price"])
-        .default("quantity")
-        .describe("Whether amount_or_quantity is a coin quantity or dollar amount."),
-      order_type: z
-        .enum(["market", "limit"])
-        .describe("Order type: 'market' or 'limit'. Required."),
-      limit_price: z
-        .number()
-        .positive()
-        .optional()
-        .describe("Limit price. Required for limit orders."),
+      title: "Place Crypto Order",
+      description: "Place a crypto order. Always confirm with the user before calling.",
+      inputSchema: {
+        symbol: z.string().describe('Crypto symbol (e.g. "BTC", "ETH").'),
+        side: z.enum(["buy", "sell"]).describe("Order side."),
+        amount_or_quantity: z
+          .number()
+          .positive()
+          .describe("Quantity or dollar amount depending on amount_in."),
+        amount_in: z
+          .enum(["quantity", "price"])
+          .default("quantity")
+          .describe("Whether amount_or_quantity is a coin quantity or dollar amount."),
+        order_type: z
+          .enum(["market", "limit"])
+          .describe("Order type: 'market' or 'limit'. Required."),
+        limit_price: z
+          .number()
+          .positive()
+          .optional()
+          .describe("Limit price. Required for limit orders."),
+      },
+      outputSchema: {
+        status: z.string(),
+        order: z.unknown(),
+      },
+      annotations: PLACE_ORDER_ANNOTATIONS,
     },
     async ({ symbol, side, amount_or_quantity, amount_in, order_type, limit_price }) => {
       try {
@@ -183,7 +221,7 @@ export function registerOrderTools(server: McpServer): void {
           orderType: order_type,
           limitPrice: limit_price,
         });
-        return text({ status: "submitted", order });
+        return structured({ status: "submitted", order });
       } catch (e) {
         return textError(String(e));
       }
@@ -193,17 +231,27 @@ export function registerOrderTools(server: McpServer): void {
   // -------------------------------------------------------------------------
   // Get orders (history)
   // -------------------------------------------------------------------------
-  server.tool(
+  server.registerTool(
     "robinhood_get_orders",
-    "Get order history for stocks, options, or crypto.",
     {
-      order_type: z
-        .enum(["stock", "option", "crypto"])
-        .default("stock")
-        .describe("Type of orders to retrieve."),
-      status: z.enum(["open", "all"]).default("all").describe("Filter by order status."),
-      account_number: z.string().optional().describe("Account number for multi-account."),
-      limit: z.number().default(50).describe("Maximum orders to return. 0 for unlimited."),
+      title: "Get Orders",
+      description:
+        "Get order history for stocks, options, or crypto in one generic tool — supports account_number scoping, open/all status filtering, and a result limit (default 50, 0 for unlimited). Prefer robinhood_get_option_orders when you want the complete, unlimited, official-parity option order history without account scoping.",
+      inputSchema: {
+        order_type: z
+          .enum(["stock", "option", "crypto"])
+          .default("stock")
+          .describe("Type of orders to retrieve."),
+        status: z.enum(["open", "all"]).default("all").describe("Filter by order status."),
+        account_number: z.string().optional().describe("Account number for multi-account."),
+        limit: z.number().default(50).describe("Maximum orders to return. 0 for unlimited."),
+      },
+      outputSchema: {
+        orders: z.array(z.unknown()),
+        order_type: z.string(),
+        status: z.string(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ order_type, status, account_number, limit }) => {
       try {
@@ -233,7 +281,7 @@ export function registerOrderTools(server: McpServer): void {
           orders = orders.slice(0, limit);
         }
 
-        return text({ orders, order_type, status });
+        return structured({ orders, order_type, status });
       } catch (e) {
         return textError(String(e));
       }
@@ -243,12 +291,23 @@ export function registerOrderTools(server: McpServer): void {
   // -------------------------------------------------------------------------
   // Cancel order
   // -------------------------------------------------------------------------
-  server.tool(
+  server.registerTool(
     "robinhood_cancel_order",
-    "Cancel a pending order by its ID.",
     {
-      order_id: z.string().describe("The order UUID to cancel."),
-      order_type: z.enum(["stock", "option", "crypto"]).default("stock").describe("Type of order."),
+      title: "Cancel Order",
+      description: "Cancel a pending order by its ID.",
+      inputSchema: {
+        order_id: z.string().describe("The order UUID to cancel."),
+        order_type: z
+          .enum(["stock", "option", "crypto"])
+          .default("stock")
+          .describe("Type of order."),
+      },
+      outputSchema: {
+        status: z.string(),
+        order_id: z.string(),
+      },
+      annotations: CANCEL_ORDER_ANNOTATIONS,
     },
     async ({ order_id, order_type }) => {
       try {
@@ -262,7 +321,7 @@ export function registerOrderTools(server: McpServer): void {
           await rh.cancelCryptoOrder(order_id);
         }
 
-        return text({ status: "cancelled", order_id });
+        return structured({ status: "cancelled", order_id });
       } catch (e) {
         return textError(String(e));
       }
@@ -272,12 +331,22 @@ export function registerOrderTools(server: McpServer): void {
   // -------------------------------------------------------------------------
   // Get order status
   // -------------------------------------------------------------------------
-  server.tool(
+  server.registerTool(
     "robinhood_get_order_status",
-    "Get the current status of a specific order by its ID.",
     {
-      order_id: z.string().describe("The order UUID."),
-      order_type: z.enum(["stock", "option", "crypto"]).default("stock").describe("Type of order."),
+      title: "Get Order Status",
+      description: "Get the current status of a specific order by its ID.",
+      inputSchema: {
+        order_id: z.string().describe("The order UUID."),
+        order_type: z
+          .enum(["stock", "option", "crypto"])
+          .default("stock")
+          .describe("Type of order."),
+      },
+      outputSchema: {
+        order: z.unknown(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ order_id, order_type }) => {
       try {
@@ -292,7 +361,7 @@ export function registerOrderTools(server: McpServer): void {
           order = await rh.getCryptoOrder(order_id);
         }
 
-        return text({ order });
+        return structured({ order });
       } catch (e) {
         return textError(String(e));
       }

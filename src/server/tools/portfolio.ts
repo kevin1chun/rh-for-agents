@@ -2,18 +2,50 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getAuthenticatedRh, text, textError } from "./_helpers.js";
+import { getAuthenticatedRh, structured, textError } from "./_helpers.js";
+
+const READ_ONLY = { readOnlyHint: true } as const;
 
 export function registerPortfolioTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "robinhood_get_portfolio",
-    "Get complete portfolio: positions with P&L, equity, buying power, cash.",
     {
-      account_number: z
-        .string()
-        .optional()
-        .describe("Specific account number, or omit for default."),
-      with_dividends: z.boolean().default(false).describe("Include dividend info per holding."),
+      title: "Get Portfolio",
+      description: "Get complete portfolio: positions with P&L, equity, buying power, cash.",
+      inputSchema: {
+        account_number: z
+          .string()
+          .optional()
+          .describe("Specific account number, or omit for default."),
+        with_dividends: z.boolean().default(false).describe("Include dividend info per holding."),
+      },
+      outputSchema: {
+        holdings: z.unknown(),
+        summary: z.looseObject({
+          equity: z.unknown().optional(),
+          market_value: z.unknown().optional(),
+          cash: z.unknown().optional(),
+          buying_power: z.unknown().optional(),
+          crypto_buying_power: z.unknown().optional(),
+          cash_available_for_withdrawal: z.unknown().optional(),
+          total_equity: z.unknown().optional(),
+          total_market_value: z.unknown().optional(),
+          portfolio_equity: z.unknown().optional(),
+          options_buying_power: z.unknown().optional(),
+          uninvested_cash: z.unknown().optional(),
+          withdrawable_cash: z.unknown().optional(),
+          equity_market_value: z.unknown().optional(),
+          option_market_value: z.unknown().optional(),
+          futures_market_value: z.unknown().optional(),
+          event_contracts_market_value: z.unknown().optional(),
+          pending_deposits: z.unknown().optional(),
+          currency: z.unknown().optional(),
+        }),
+        portfolio_profile: z.unknown(),
+        unified: z.unknown(),
+        live: z.unknown(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ account_number, with_dividends }) => {
       try {
@@ -27,7 +59,7 @@ export function registerPortfolioTools(server: McpServer): void {
         const unified = await rh.getUnifiedPortfolio(account_number);
         const live = await rh.getPortfolioLive(account_number);
 
-        return text({
+        return structured({
           holdings,
           summary: {
             // existing fields (kept for compatibility)
@@ -61,50 +93,74 @@ export function registerPortfolioTools(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_equity_positions",
-    "Get raw equity positions (shares, average buy price, per-account) without holding enrichment.",
     {
-      account_number: z
-        .string()
-        .optional()
-        .describe("Specific account number, or omit for all accounts."),
-      nonzero: z.boolean().default(true).describe("Only positions with a non-zero quantity."),
+      title: "Get Equity Positions",
+      description:
+        "Get raw equity positions (shares, average buy price, per-account) without holding enrichment.",
+      inputSchema: {
+        account_number: z
+          .string()
+          .optional()
+          .describe("Specific account number, or omit for all accounts."),
+        nonzero: z.boolean().default(true).describe("Only positions with a non-zero quantity."),
+      },
+      outputSchema: {
+        positions: z.array(z.unknown()),
+      },
+      annotations: READ_ONLY,
     },
     async ({ account_number, nonzero }) => {
       try {
         const rh = await getAuthenticatedRh();
         const positions = await rh.getPositions({ accountNumber: account_number, nonzero });
-        return text({ positions });
+        return structured({ positions });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_accounts",
-    "Get all brokerage accounts (multi-account support).",
-    {},
+    {
+      title: "Get Accounts",
+      description: "Get all brokerage accounts (multi-account support).",
+      inputSchema: {},
+      outputSchema: {
+        accounts: z.array(z.unknown()),
+      },
+      annotations: READ_ONLY,
+    },
     async () => {
       try {
         const rh = await getAuthenticatedRh();
         const accounts = await rh.getAccounts({ allAccounts: true });
-        return text({ accounts });
+        return structured({ accounts });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_account",
-    "Get account details, profile, and investment preferences.",
     {
-      info_type: z
-        .enum(["all", "account", "user", "investment"])
-        .default("all")
-        .describe("What to return."),
+      title: "Get Account",
+      description: "Get account details, profile, and investment preferences.",
+      inputSchema: {
+        info_type: z
+          .enum(["all", "account", "user", "investment"])
+          .default("all")
+          .describe("What to return."),
+      },
+      outputSchema: {
+        account: z.unknown().optional(),
+        user: z.unknown().optional(),
+        investment: z.unknown().optional(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ info_type }) => {
       try {
@@ -119,7 +175,7 @@ export function registerPortfolioTools(server: McpServer): void {
         if (info_type === "all" || info_type === "investment") {
           result.investment = await rh.getInvestmentProfile();
         }
-        return text(result);
+        return structured(result);
       } catch (e) {
         return textError(String(e));
       }

@@ -17,12 +17,12 @@ If `logged_in` — already authenticated, stop. Otherwise continue.
 ```bash
 bunx robinhood-for-agents onboard
 ```
-This runs the interactive setup — it will open Chrome to the real Robinhood website for login:
-1. Chrome opens to robinhood.com/login
+This runs the interactive setup — it will open your browser (Chrome, Brave, or Chromium — auto-detected on macOS; override with `BROWSER_PATH`) to the real Robinhood website for login:
+1. Browser opens to robinhood.com/login
 2. User enters email and password
 3. Robinhood handles MFA natively (push notification, SMS, etc.)
 4. Token captured automatically and saved to OS keychain
-5. Chrome closes when login is complete
+5. Browser closes when login is complete
 
 ### Step 3: Verify
 ```bash
@@ -52,5 +52,5 @@ Confirm to the user that authentication is complete.
 ## Notes
 - No credentials (username/password) pass through the tool layer — login happens on the real Robinhood website
 - Tokens are stored in the OS keychain via `Bun.secrets` (default) — never on disk in plaintext
-- Tokens expire after ~24h; the client auto-refreshes before requiring re-auth
+- Access tokens last ~8.5 days; the client auto-refreshes on 401 via the stored refresh token, so re-auth is only needed roughly once a week+
 - The client injects `Authorization: Bearer` headers directly into API requests

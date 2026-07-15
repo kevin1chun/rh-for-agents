@@ -13,7 +13,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { RobinhoodClient } from "../../client/client.js";
 import type { WatchlistItemRef, WatchlistObjectType } from "../../client/index.js";
-import { getAuthenticatedRh, text, textError } from "./_helpers.js";
+import { getAuthenticatedRh, structured, textError } from "./_helpers.js";
 
 const READ_ONLY = { readOnlyHint: true } as const;
 // Adds are non-destructive + idempotent (re-adding is a no-op). Removes are
@@ -52,6 +52,13 @@ const FOLLOW_ANNOTATIONS = {
 
 /** Max option_ids per add/remove call — bounds the non-atomic partial-failure surface. */
 const MAX_OPTION_IDS = 20;
+
+/** A resolved add/remove item echoed back to the caller — handler-constructed envelope shape. */
+const RESOLVED_ITEM_SCHEMA = z.looseObject({
+  object_type: z.string(),
+  object_id: z.string(),
+  symbol: z.string().optional(),
+});
 
 /**
  * Parse a single-leg options-watchlist `strategy_code` (`"{option_id}_L1"` /
@@ -149,38 +156,62 @@ async function resolveAddItems(rh: RobinhoodClient, sel: Selection): Promise<Res
 }
 
 export function registerWatchlistTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "robinhood_get_watchlists",
-    "List your own Robinhood watchlists (custom lists). Returns each list's metadata including its `id` (UUID) — pass that id to robinhood_get_watchlist_items, robinhood_add_to_watchlist, or robinhood_remove_from_watchlist. Does not include the lists' items. For Robinhood-curated lists, use robinhood_get_popular_watchlists.",
-    {},
-    READ_ONLY,
+    {
+      title: "Get Watchlists",
+      description:
+        "List your own Robinhood watchlists (custom lists). Returns each list's metadata including its `id` (UUID) — pass that id to robinhood_get_watchlist_items, robinhood_add_to_watchlist, or robinhood_remove_from_watchlist. Does not include the lists' items. For Robinhood-curated lists, use robinhood_get_popular_watchlists.",
+      inputSchema: {},
+      outputSchema: {
+        count: z.number(),
+        watchlists: z.array(z.unknown()),
+      },
+      annotations: READ_ONLY,
+    },
     async () => {
       try {
         const rh = await getAuthenticatedRh();
         const watchlists = await rh.getWatchlists();
-        return text({ count: watchlists.length, watchlists });
+        return structured({ count: watchlists.length, watchlists });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_watchlist_items",
-    "List the items in a watchlist by list_id. Items are enriched with `symbol` and `name`; `object_type` distinguishes stocks/ETFs (instrument), market indexes (index), and crypto pairs (currency_pair). Does not return live prices — call robinhood_get_stock_quote for those. For the options watchlist use robinhood_get_option_watchlist instead. An unknown list_id returns an error.",
     {
-      list_id: z
-        .uuid()
-        .describe(
-          "UUID of the watchlist (from robinhood_get_watchlists or _get_popular_watchlists).",
+      title: "Get Watchlist Items",
+      description:
+        "List the items in a watchlist by list_id. Items are enriched with `symbol` and `name`; `object_type` distinguishes stocks/ETFs (instrument), market indexes (index), and crypto pairs (currency_pair). Does not return live prices — call robinhood_get_stock_quote for those. For the options watchlist use robinhood_get_option_watchlist instead. An unknown list_id returns an error.",
+      inputSchema: {
+        list_id: z
+          .uuid()
+          .describe(
+            "UUID of the watchlist (from robinhood_get_watchlists or _get_popular_watchlists).",
+          ),
+      },
+      outputSchema: {
+        list_id: z.string(),
+        count: z.number(),
+        items: z.array(
+          z.object({
+            object_id: z.unknown().optional(),
+            object_type: z.unknown().optional(),
+            symbol: z.unknown(),
+            name: z.unknown(),
+          }),
         ),
+      },
+      annotations: READ_ONLY,
     },
-    READ_ONLY,
     async ({ list_id }) => {
       try {
         const rh = await getAuthenticatedRh();
         const items = await rh.getWatchlistItems(list_id);
-        return text({
+        return structured({
           list_id,
           count: items.length,
           items: items.map((it) => ({
@@ -196,33 +227,60 @@ export function registerWatchlistTools(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_popular_watchlists",
-    "Discover Robinhood-curated watchlists (e.g. '100 Most Popular', 'Daily Movers'). Returns each list's metadata including its `id` (UUID); pass an id to robinhood_get_watchlist_items to see its members. Paginated results are fully collected.",
-    {},
-    READ_ONLY,
+    {
+      title: "Get Popular Watchlists",
+      description:
+        "Discover Robinhood-curated watchlists (e.g. '100 Most Popular', 'Daily Movers'). Returns each list's metadata including its `id` (UUID); pass an id to robinhood_get_watchlist_items to see its members. Paginated results are fully collected.",
+      inputSchema: {},
+      outputSchema: {
+        count: z.number(),
+        watchlists: z.array(z.unknown()),
+      },
+      annotations: READ_ONLY,
+    },
     async () => {
       try {
         const rh = await getAuthenticatedRh();
         const watchlists = await rh.getPopularWatchlists();
-        return text({ count: watchlists.length, watchlists });
+        return structured({ count: watchlists.length, watchlists });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_option_watchlist",
-    "List the single-leg option contracts on your options watchlist. Each entry has the underlying (chain_symbol), a human name, its watchlist object_id, and the option_id you'd pass to robinhood_remove_option_from_watchlist. Multi-leg strategies (e.g. from app-side order placement) are listed with a null option_id and can't be modified here — view those in the Robinhood app. For equity/index/crypto watchlists use robinhood_get_watchlist_items instead.",
-    {},
-    READ_ONLY,
+    {
+      title: "Get Option Watchlist",
+      description:
+        "List the single-leg option contracts on your options watchlist. Each entry has the underlying (chain_symbol), a human name, its watchlist object_id, and the option_id you'd pass to robinhood_remove_option_from_watchlist. Multi-leg strategies (e.g. from app-side order placement) are listed with a null option_id and can't be modified here — view those in the Robinhood app. For equity/index/crypto watchlists use robinhood_get_watchlist_items instead.",
+      inputSchema: {},
+      outputSchema: {
+        count: z.number(),
+        contracts: z.array(
+          z.object({
+            object_id: z.unknown().optional(),
+            option_id: z.string().nullable(),
+            position_type: z.enum(["long", "short"]).nullable(),
+            single_leg: z.boolean(),
+            chain_symbol: z.unknown(),
+            strategy: z.unknown(),
+            name: z.unknown(),
+          }),
+        ),
+        note: z.string(),
+      },
+      annotations: READ_ONLY,
+    },
     async () => {
       try {
         const rh = await getAuthenticatedRh();
         const list = await rh.getOptionWatchlist();
         if (!list) {
-          return text({
+          return structured({
             contracts: [],
             count: 0,
             note: "No options watchlist found on this account.",
@@ -247,25 +305,34 @@ export function registerWatchlistTools(server: McpServer): void {
             : multiLeg > 0
               ? `Single-leg contracts expose an option_id for robinhood_remove_option_from_watchlist. ${multiLeg} multi-leg strateg${multiLeg === 1 ? "y is" : "ies are"} present with a null option_id — view/modify those in the Robinhood app.`
               : "Single-leg option contracts. Use option_id with robinhood_remove_option_from_watchlist.";
-        return text({ count: contracts.length, contracts, note });
+        return structured({ count: contracts.length, contracts, note });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_create_watchlist",
-    "Create a new (empty) watchlist for the user. Returns the created list including its new `id` (use that id with robinhood_add_to_watchlist to populate it). CONFIRM WITH THE USER before calling — this creates a list on the user's account. To add symbols, follow up with robinhood_add_to_watchlist.",
     {
-      display_name: z.string().min(1).describe("The list's name (shown to the user)."),
-      display_description: z
-        .string()
-        .nullish()
-        .describe("Optional one-line description for the list."),
-      icon_emoji: z.string().nullish().describe("Optional emoji shown next to the list name."),
+      title: "Create Watchlist",
+      description:
+        "Create a new (empty) watchlist for the user. Returns the created list including its new `id` (use that id with robinhood_add_to_watchlist to populate it). CONFIRM WITH THE USER before calling — this creates a list on the user's account. To add symbols, follow up with robinhood_add_to_watchlist.",
+      inputSchema: {
+        display_name: z.string().min(1).describe("The list's name (shown to the user)."),
+        display_description: z
+          .string()
+          .nullish()
+          .describe("Optional one-line description for the list."),
+        icon_emoji: z.string().nullish().describe("Optional emoji shown next to the list name."),
+      },
+      outputSchema: {
+        operation: z.string(),
+        list: z.unknown(),
+        note: z.string(),
+      },
+      annotations: CREATE_ANNOTATIONS,
     },
-    CREATE_ANNOTATIONS,
     async ({ display_name, display_description, icon_emoji }) => {
       try {
         const rh = await getAuthenticatedRh();
@@ -273,7 +340,7 @@ export function registerWatchlistTools(server: McpServer): void {
           displayDescription: display_description ?? undefined,
           iconEmoji: icon_emoji ?? undefined,
         });
-        return text({
+        return structured({
           operation: "created",
           list,
           note: "Watchlist created (empty). Add items with robinhood_add_to_watchlist using the returned list id.",
@@ -284,18 +351,27 @@ export function registerWatchlistTools(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_update_watchlist",
-    "Update a watchlist's own metadata — its name, description, or emoji. Provide the list_id and at least one field to change; omitted fields are left unchanged. This does NOT add or remove items (use robinhood_add_to_watchlist / robinhood_remove_from_watchlist for those). CONFIRM WITH THE USER before calling — this mutates the user's watchlist.",
     {
-      list_id: z
-        .uuid()
-        .describe("UUID of the watchlist to update (from robinhood_get_watchlists)."),
-      display_name: z.string().min(1).nullish().describe("New name for the list."),
-      display_description: z.string().nullish().describe("New description for the list."),
-      icon_emoji: z.string().nullish().describe("New emoji for the list."),
+      title: "Update Watchlist",
+      description:
+        "Update a watchlist's own metadata — its name, description, or emoji. Provide the list_id and at least one field to change; omitted fields are left unchanged. This does NOT add or remove items (use robinhood_add_to_watchlist / robinhood_remove_from_watchlist for those). CONFIRM WITH THE USER before calling — this mutates the user's watchlist.",
+      inputSchema: {
+        list_id: z
+          .uuid()
+          .describe("UUID of the watchlist to update (from robinhood_get_watchlists)."),
+        display_name: z.string().min(1).nullish().describe("New name for the list."),
+        display_description: z.string().nullish().describe("New description for the list."),
+        icon_emoji: z.string().nullish().describe("New emoji for the list."),
+      },
+      outputSchema: {
+        operation: z.string(),
+        list_id: z.string(),
+        list: z.unknown(),
+      },
+      annotations: UPDATE_ANNOTATIONS,
     },
-    UPDATE_ANNOTATIONS,
     async ({ list_id, display_name, display_description, icon_emoji }) => {
       try {
         const rh = await getAuthenticatedRh();
@@ -304,18 +380,28 @@ export function registerWatchlistTools(server: McpServer): void {
           displayDescription: display_description ?? undefined,
           iconEmoji: icon_emoji ?? undefined,
         });
-        return text({ operation: "updated", list_id, list });
+        return structured({ operation: "updated", list_id, list });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_add_to_watchlist",
-    "Add items to one of your watchlists. Provide exactly one of: symbols (stocks/ETFs), currency_pair_ids (crypto), or index_ids (market indexes) — mutually exclusive. Already-present items are no-ops. For options use robinhood_add_option_to_watchlist. CONFIRM WITH THE USER before calling — this mutates the user's watchlist.",
-    writeShape,
-    ADD_ANNOTATIONS,
+    {
+      title: "Add to Watchlist",
+      description:
+        "Add items to one of your watchlists. Provide exactly one of: symbols (stocks/ETFs), currency_pair_ids (crypto), or index_ids (market indexes) — mutually exclusive. Already-present items are no-ops. For options use robinhood_add_option_to_watchlist. CONFIRM WITH THE USER before calling — this mutates the user's watchlist.",
+      inputSchema: writeShape,
+      outputSchema: {
+        list_id: z.string(),
+        operation: z.string(),
+        ensured_present: z.array(RESOLVED_ITEM_SCHEMA),
+        note: z.string(),
+      },
+      annotations: ADD_ANNOTATIONS,
+    },
     async ({ list_id, symbols, currency_pair_ids, index_ids }) => {
       try {
         const rh = await getAuthenticatedRh();
@@ -326,7 +412,7 @@ export function registerWatchlistTools(server: McpServer): void {
           object_id: r.object_id,
         }));
         await rh.updateWatchlistItems(list_id, "create", refs);
-        return text({
+        return structured({
           list_id,
           operation: "add",
           ensured_present: resolved,
@@ -338,11 +424,23 @@ export function registerWatchlistTools(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_remove_from_watchlist",
-    "Remove items from one of your watchlists. Provide exactly one of: symbols (stocks/ETFs), currency_pair_ids (crypto), or index_ids (market indexes) — mutually exclusive. Items not on the list are reported as not_present (not an error). CONFIRM WITH THE USER before calling — this mutates the user's watchlist.",
-    writeShape,
-    REMOVE_ANNOTATIONS,
+    {
+      title: "Remove from Watchlist",
+      description:
+        "Remove items from one of your watchlists. Provide exactly one of: symbols (stocks/ETFs), currency_pair_ids (crypto), or index_ids (market indexes) — mutually exclusive. Items not on the list are reported as not_present (not an error). CONFIRM WITH THE USER before calling — this mutates the user's watchlist.",
+      inputSchema: writeShape,
+      outputSchema: {
+        list_id: z.string(),
+        operation: z.string(),
+        removed: z.array(RESOLVED_ITEM_SCHEMA),
+        not_present: z.array(
+          z.object({ symbol: z.string().optional(), object_id: z.string().optional() }),
+        ),
+      },
+      annotations: REMOVE_ANNOTATIONS,
+    },
     async ({ list_id, symbols, currency_pair_ids, index_ids }) => {
       try {
         const rh = await getAuthenticatedRh();
@@ -383,29 +481,39 @@ export function registerWatchlistTools(server: McpServer): void {
         if (removeRefs.length > 0) {
           await rh.updateWatchlistItems(list_id, "delete", removeRefs);
         }
-        return text({ list_id, operation: "remove", removed, not_present: notPresent });
+        return structured({ list_id, operation: "remove", removed, not_present: notPresent });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_follow_watchlist",
-    "Follow a Robinhood-curated list so it appears in your watchlists. Use only for curated lists (from robinhood_get_popular_watchlists) — you already own your custom lists. Following an already-followed list is a no-op. CONFIRM WITH THE USER before calling — this adds the list to the user's account.",
     {
-      list_id: z
-        .uuid()
-        .describe(
-          "UUID of the Robinhood-curated list to follow (from robinhood_get_popular_watchlists).",
-        ),
+      title: "Follow Watchlist",
+      description:
+        "Follow a Robinhood-curated list so it appears in your watchlists. Use only for curated lists (from robinhood_get_popular_watchlists) — you already own your custom lists. Following an already-followed list is a no-op. CONFIRM WITH THE USER before calling — this adds the list to the user's account.",
+      inputSchema: {
+        list_id: z
+          .uuid()
+          .describe(
+            "UUID of the Robinhood-curated list to follow (from robinhood_get_popular_watchlists).",
+          ),
+      },
+      outputSchema: {
+        list_id: z.string(),
+        operation: z.string(),
+        followed: z.boolean(),
+        note: z.string(),
+      },
+      annotations: FOLLOW_ANNOTATIONS,
     },
-    FOLLOW_ANNOTATIONS,
     async ({ list_id }) => {
       try {
         const rh = await getAuthenticatedRh();
         await rh.followWatchlist(list_id);
-        return text({
+        return structured({
           list_id,
           operation: "follow",
           followed: true,
@@ -417,18 +525,28 @@ export function registerWatchlistTools(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_unfollow_watchlist",
-    "Stop following a Robinhood-curated list. The list itself is unchanged — it just no longer appears in your watchlists. Unfollowing a list you don't follow is a no-op. CONFIRM WITH THE USER before calling.",
     {
-      list_id: z.uuid().describe("UUID of the Robinhood-curated list to unfollow."),
+      title: "Unfollow Watchlist",
+      description:
+        "Stop following a Robinhood-curated list. The list itself is unchanged — it just no longer appears in your watchlists. Unfollowing a list you don't follow is a no-op. CONFIRM WITH THE USER before calling.",
+      inputSchema: {
+        list_id: z.uuid().describe("UUID of the Robinhood-curated list to unfollow."),
+      },
+      outputSchema: {
+        list_id: z.string(),
+        operation: z.string(),
+        followed: z.boolean(),
+        note: z.string(),
+      },
+      annotations: FOLLOW_ANNOTATIONS,
     },
-    FOLLOW_ANNOTATIONS,
     async ({ list_id }) => {
       try {
         const rh = await getAuthenticatedRh();
         await rh.unfollowWatchlist(list_id);
-        return text({
+        return structured({
           list_id,
           operation: "unfollow",
           followed: false,
@@ -440,21 +558,42 @@ export function registerWatchlistTools(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_add_option_to_watchlist",
-    'Add option contracts to your options watchlist. Each option_id becomes a single-leg contract. Source option_ids from robinhood_get_options / robinhood_get_option_instruments. Already-present contracts are reported as already_present (no duplicate is created). Only position_type "long" is supported over this path (short-leg watchlist entries must be added via the Robinhood app). CONFIRM WITH THE USER before calling — this is a real write.',
     {
-      option_ids: z
-        .array(z.uuid())
-        .min(1)
-        .max(MAX_OPTION_IDS)
-        .describe("Option contract UUIDs to add (each becomes a single-leg contract)."),
-      position_type: z
-        .enum(["long", "short"])
-        .nullish()
-        .describe('"long" (default). "short" is not supported over this path — use the app.'),
+      title: "Add Option to Watchlist",
+      description:
+        'Add option contracts to your options watchlist. Each option_id becomes a single-leg contract. Source option_ids from robinhood_get_options / robinhood_get_option_instruments. Already-present contracts are reported as already_present (no duplicate is created). Only position_type "long" is supported over this path (short-leg watchlist entries must be added via the Robinhood app). CONFIRM WITH THE USER before calling — this is a real write.',
+      inputSchema: {
+        option_ids: z
+          .array(z.uuid())
+          .min(1)
+          .max(MAX_OPTION_IDS)
+          .describe("Option contract UUIDs to add (each becomes a single-leg contract)."),
+        position_type: z
+          .enum(["long", "short"])
+          .nullish()
+          .describe('"long" (default). "short" is not supported over this path — use the app.'),
+      },
+      outputSchema: {
+        operation: z.string(),
+        position_type: z.string(),
+        results: z.array(
+          z.object({
+            option_id: z.string(),
+            status: z.string(),
+            reason: z.string().optional(),
+          }),
+        ),
+        summary: z.object({
+          ensured_present: z.number(),
+          already_present: z.number(),
+          failed: z.number(),
+        }),
+        note: z.string(),
+      },
+      annotations: ADD_ANNOTATIONS,
     },
-    ADD_ANNOTATIONS,
     async ({ option_ids, position_type }) => {
       try {
         if ((position_type ?? "long") !== "long") {
@@ -490,7 +629,7 @@ export function registerWatchlistTools(server: McpServer): void {
             results.push({ option_id: id, status: "failed", reason: String(e) });
           }
         }
-        return text({
+        return structured({
           operation: "add_option",
           position_type: "long",
           results,
@@ -507,21 +646,32 @@ export function registerWatchlistTools(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_remove_option_from_watchlist",
-    'Remove option contracts from your options watchlist. Provide the option_ids (from robinhood_get_option_watchlist). Contracts not on the list are reported as not_present, not an error. Only position_type "long" is supported over this path. CONFIRM WITH THE USER before calling.',
     {
-      option_ids: z
-        .array(z.uuid())
-        .min(1)
-        .max(MAX_OPTION_IDS)
-        .describe("Option contract UUIDs to remove (from robinhood_get_option_watchlist)."),
-      position_type: z
-        .enum(["long", "short"])
-        .nullish()
-        .describe('"long" (default). "short" is not supported over this path — use the app.'),
+      title: "Remove Option from Watchlist",
+      description:
+        'Remove option contracts from your options watchlist. Provide the option_ids (from robinhood_get_option_watchlist). Contracts not on the list are reported as not_present, not an error. Only position_type "long" is supported over this path. CONFIRM WITH THE USER before calling.',
+      inputSchema: {
+        option_ids: z
+          .array(z.uuid())
+          .min(1)
+          .max(MAX_OPTION_IDS)
+          .describe("Option contract UUIDs to remove (from robinhood_get_option_watchlist)."),
+        position_type: z
+          .enum(["long", "short"])
+          .nullish()
+          .describe('"long" (default). "short" is not supported over this path — use the app.'),
+      },
+      outputSchema: {
+        operation: z.string(),
+        position_type: z.string().optional(),
+        removed: z.array(z.object({ option_id: z.string(), object_id: z.string().optional() })),
+        not_present: z.array(z.object({ option_id: z.string() })),
+        note: z.string(),
+      },
+      annotations: REMOVE_ANNOTATIONS,
     },
-    REMOVE_ANNOTATIONS,
     async ({ option_ids, position_type }) => {
       try {
         if ((position_type ?? "long") !== "long") {
@@ -533,7 +683,7 @@ export function registerWatchlistTools(server: McpServer): void {
         const ids = option_ids.filter(Boolean);
         const list = await rh.getOptionWatchlist();
         if (!list?.id) {
-          return text({
+          return structured({
             operation: "remove_option",
             removed: [],
             not_present: ids.map((id) => ({ option_id: id })),
@@ -563,7 +713,7 @@ export function registerWatchlistTools(server: McpServer): void {
         if (removeRefs.length > 0) {
           await rh.updateWatchlistItems(list.id, "delete", removeRefs);
         }
-        return text({
+        return structured({
           operation: "remove_option",
           position_type: "long",
           removed,

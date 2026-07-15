@@ -148,7 +148,7 @@ All 49 tools work with every MCP-compatible agent.
 | `robinhood_get_option_positions` | Open option positions (per-leg or by strategy) |
 | `robinhood_get_option_orders` | Option order history |
 | `robinhood_get_option_historicals` | Historical OHLC for a specific option contract |
-| `robinhood_get_crypto` | Crypto quotes, history, positions |
+| `robinhood_get_crypto` | Crypto positions and quotes |
 | `robinhood_review_equity_order` | Simulate a stock order before placing (price-collar check, live quote) |
 | `robinhood_review_option_order` | Simulate an option order before placing (per-leg data, collateral) |
 | `robinhood_place_stock_order` | Place stock orders (market/limit/stop/trailing) |

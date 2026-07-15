@@ -68,6 +68,12 @@ const holdings = await rh.buildHoldings({ withDividends: true });
 ```
 Options: `{ accountNumber?: string; withDividends?: boolean }`
 
+### `getAccountProfile(accountNumber?): Promise<Account>`
+```typescript
+const account = await rh.getAccountProfile();
+// => { account_number, buying_power, ... } — omit accountNumber to default to the first account
+```
+
 ### `getAccounts(opts?): Promise<Account[]>`
 ```typescript
 const accounts = await rh.getAccounts();
@@ -78,6 +84,19 @@ const accounts = await rh.getAccounts();
 const portfolio = await rh.getPortfolioProfile();
 // => { equity, market_value, ... }
 ```
+
+### `getUnifiedPortfolio(accountNumber?): Promise<UnifiedPortfolio>`
+Total equity + full buying-power breakdown (bonfire) — the data behind `robinhood_get_portfolio`'s `unified` field.
+
+### `getPortfolioLive(accountNumber?): Promise<PortfolioLive>`
+Live per-asset-class market values + cash (bonfire) — the data behind `robinhood_get_portfolio`'s `live` field.
+
+### `getPositions(opts?): Promise<Position[]>`
+```typescript
+const positions = await rh.getPositions({ nonzero: true });
+// => raw equity positions (shares, average_buy_price) — no P&L/name enrichment (use buildHoldings for that)
+```
+Options: `{ accountNumber?: string; nonzero?: boolean }`
 
 ### `getCryptoPositions(): Promise<CryptoPosition[]>`
 ### `getCryptoQuote(symbol): Promise<CryptoQuote>`
@@ -94,6 +113,15 @@ Accepts single symbol or array. Returns `last_trade_price`, `bid_price`, `ask_pr
 ### `getFundamentals(symbols): Promise<Fundamental[]>`
 Returns `market_cap`, `pe_ratio`, `pb_ratio`, `float`, `dividend_yield`, `high_52_weeks`, `low_52_weeks`, `description`, `ceo`, `sector`, plus a full dividend schedule (`dividend_per_share`, `ex_dividend_date`, `payable_date`, `distribution_frequency`).
 
+### `getPriceBook(symbol): Promise<PriceBook>`
+Level-2 price book (aggregated bid/ask depth). `asks`/`bids` are empty when the market is closed.
+
+### `getTradability(symbols): Promise<Array<{ symbol, tradeable?, ... }>>`
+```typescript
+const flags = await rh.getTradability(["AAPL", "MSFT"]);
+// => [{ symbol, tradeable, tradability, fractional_tradability, short_selling_tradability, account_type_tradabilities, ... }]
+```
+
 ### `getStockHistoricals(symbols, opts?): Promise<StockHistorical[]>`
 ```typescript
 const hist = await rh.getStockHistoricals("AAPL", { interval: "day", span: "year", bounds: "regular" });
@@ -107,6 +135,13 @@ Robinhood's **modeled daily** short-interest series (not the official biweekly F
 ### `getRatings(symbol): Promise<Rating>`
 ### `getEarnings(symbol): Promise<Earnings[]>`
 EPS is nested under `eps` (`eps.estimate`, `eps.actual`) — not flat top-level fields (assuming flat returns `undefined`). Also includes `report` (date/timing) and `call` (datetime, replay_url).
+
+### `getEarningsCalendar(rangeDays?): Promise<Earnings[]>`
+Market-wide earnings calendar (all reporting companies, not one symbol). `rangeDays` (default `7`) selects the window: positive = upcoming, negative = look-back; must be non-zero.
+```typescript
+const calendar = await rh.getEarningsCalendar(7);  // next 7 days
+```
+
 ### `findInstruments(query): Promise<Instrument[]>`
 
 ## Options Methods
@@ -137,7 +172,23 @@ const spx = await rh.getIndexValue("SPX");
 // => { value: "5700.00", symbol: "SPX" } or null for non-index
 ```
 
-### `getOpenOptionPositions(accountNumber?): Promise<OptionPosition[]>`
+### `getOptionPositions(opts?): Promise<OptionPosition[]>`
+```typescript
+const legs = await rh.getOptionPositions({ nonzero: true }); // open positions, per-leg
+```
+Options: `{ accountNumber?: string; nonzero?: boolean }`
+
+### `getOptionAggregatePositions(opts?): Promise<OptionAggregatePosition[]>`
+```typescript
+const strategies = await rh.getOptionAggregatePositions({ nonzero: true }); // same positions grouped by strategy (spreads, condors, ...)
+```
+Same options as `getOptionPositions`.
+
+### `getOptionHistoricals(symbol, expirationDate, strikePrice, optionType, opts?): Promise<OptionHistorical[]>`
+```typescript
+const hist = await rh.getOptionHistoricals("AAPL", "2026-04-17", 200, "call", { span: "day", interval: "hour" });
+```
+Historical OHLC series for one contract. Options: `{ span?: string; interval?: string; bounds?: string }`
 
 ## Order Methods
 
@@ -211,6 +262,27 @@ await rh.cancelOptionOrder("order-uuid");
 await rh.cancelCryptoOrder("order-uuid");
 ```
 
+## Markets Methods
+
+### `getTopMovers(): Promise<Instrument[]>`
+```typescript
+const movers = await rh.getTopMovers(); // Robinhood's featured top-movers list
+```
+
+### `getTopMoversSp500(direction): Promise<Instrument[]>`
+```typescript
+const gainers = await rh.getTopMoversSp500("up"); // "up" | "down" — S&P 500 movers
+```
+
+### `getIndexInstruments(): Promise<IndexInstrument[]>`
+All tradable index instruments (SPX, NDX, VIX, RUT, …).
+
+### `getIndexQuotes(symbols): Promise<IndexValue[]>`
+```typescript
+const values = await rh.getIndexQuotes(["SPX", "VIX"]); // current values; unknown symbols are skipped
+```
+See also `getIndexValue(symbol)` above (Options Methods) for a single-symbol lookup.
+
 ## Watchlist Methods
 
 **Safety**: watchlist writes mutate the user's account — confirm the exact list + symbols before calling. Lists are addressed by `list_id` (UUID) only; there is no default-list resolution.
@@ -221,6 +293,7 @@ const lists = await rh.getWatchlists();                 // your own lists (metad
 const curated = await rh.getPopularWatchlists();         // Robinhood-curated lists
 const items = await rh.getWatchlistItems(lists[0].id);   // items enriched with symbol/name
 const optContracts = await rh.getOptionWatchlistContracts(); // single-leg option contracts on the options watchlist
+const optList = await rh.getOptionWatchlist();           // options watchlist metadata (Watchlist | null) — for contracts use getOptionWatchlistContracts()
 ```
 
 ### Writes — `updateWatchlistItems(listId, operation, items)`

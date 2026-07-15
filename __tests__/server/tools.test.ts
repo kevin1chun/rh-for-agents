@@ -305,10 +305,9 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 function captureMockServer(): { server: McpServer; tools: Record<string, ToolHandler> } {
   const tools: Record<string, ToolHandler> = {};
   const server = {
-    // Handler is always the LAST argument — works for both the 4-arg
-    // (name, desc, schema, handler) and 5-arg (…, annotations, handler) forms.
-    tool: (name: string, ...rest: unknown[]) => {
-      tools[name] = rest[rest.length - 1] as ToolHandler;
+    // registerTool(name, config, handler) — the modern config-object API.
+    registerTool: (name: string, _config: unknown, handler: ToolHandler) => {
+      tools[name] = handler;
     },
   } as unknown as McpServer;
   return { server, tools };
@@ -818,8 +817,12 @@ describe("Phase 1B watchlist tools", () => {
     const { registerWatchlistTools } = await import("../../src/server/tools/watchlists.js");
     const meta: Record<string, { readOnlyHint?: boolean }> = {};
     const server = {
-      tool: (name: string, _d: string, _s: unknown, annotations: { readOnlyHint?: boolean }) => {
-        meta[name] = annotations;
+      registerTool: (
+        name: string,
+        config: { annotations?: { readOnlyHint?: boolean } },
+        _handler: unknown,
+      ) => {
+        meta[name] = config.annotations ?? {};
       },
     } as unknown as McpServer;
     registerWatchlistTools(server);

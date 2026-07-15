@@ -3,7 +3,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { OptionInstrument } from "../../client/types.js";
-import { getAuthenticatedRh, text, textError } from "./_helpers.js";
+import { getAuthenticatedRh, structured, textError } from "./_helpers.js";
+
+const READ_ONLY = { readOnlyHint: true } as const;
 
 /** Keep only the N strikes closest to the current price. */
 function filterNearestStrikes(
@@ -18,18 +20,29 @@ function filterNearestStrikes(
 }
 
 export function registerOptionsTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "robinhood_get_options",
-    "Get options chain with greeks for a stock or index symbol (SPX, NDX, VIX, RUT, XSP supported).",
     {
-      symbol: z.string().describe("Stock or index ticker symbol."),
-      expiration_date: z.string().optional().describe("Filter by expiration date (YYYY-MM-DD)."),
-      strike_price: z.number().optional().describe("Filter by strike price."),
-      option_type: z.enum(["call", "put"]).optional().describe("Filter by type."),
-      max_strikes: z
-        .number()
-        .optional()
-        .describe("Limit to N strikes nearest to current price (ATM). Reduces response size."),
+      title: "Get Options Chain",
+      description:
+        "Get options chain with greeks for a stock or index symbol (SPX, NDX, VIX, RUT, XSP supported).",
+      inputSchema: {
+        symbol: z.string().describe("Stock or index ticker symbol."),
+        expiration_date: z.string().optional().describe("Filter by expiration date (YYYY-MM-DD)."),
+        strike_price: z.number().optional().describe("Filter by strike price."),
+        option_type: z.enum(["call", "put"]).optional().describe("Filter by type."),
+        max_strikes: z
+          .number()
+          .optional()
+          .describe("Limit to N strikes nearest to current price (ATM). Reduces response size."),
+      },
+      outputSchema: {
+        chain_info: z.unknown().optional(),
+        index_value: z.unknown().optional(),
+        market_data: z.unknown().optional(),
+        options: z.array(z.unknown()).optional(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ symbol, expiration_date, strike_price, option_type, max_strikes }) => {
       try {
@@ -77,23 +90,32 @@ export function registerOptionsTools(server: McpServer): void {
         }
 
         result.options = options;
-        return text(result);
+        return structured(result);
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_option_positions",
-    "Get open option positions. Per-leg by default, or grouped by strategy (spreads, condors).",
     {
-      account_number: z.string().optional().describe("Specific account number, or omit for all."),
-      aggregate: z
-        .boolean()
-        .default(false)
-        .describe("Group by strategy instead of returning individual legs."),
-      nonzero: z.boolean().default(true).describe("Only positions with a non-zero quantity."),
+      title: "Get Option Positions",
+      description:
+        "Get open option positions. Per-leg by default, or grouped by strategy (spreads, condors).",
+      inputSchema: {
+        account_number: z.string().optional().describe("Specific account number, or omit for all."),
+        aggregate: z
+          .boolean()
+          .default(false)
+          .describe("Group by strategy instead of returning individual legs."),
+        nonzero: z.boolean().default(true).describe("Only positions with a non-zero quantity."),
+      },
+      outputSchema: {
+        positions: z.array(z.unknown()),
+        aggregate: z.boolean(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ account_number, aggregate, nonzero }) => {
       try {
@@ -101,46 +123,61 @@ export function registerOptionsTools(server: McpServer): void {
         const positions = aggregate
           ? await rh.getOptionAggregatePositions({ accountNumber: account_number, nonzero })
           : await rh.getOptionPositions({ accountNumber: account_number, nonzero });
-        return text({ positions, aggregate });
+        return structured({ positions, aggregate });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_option_orders",
-    "Get option order history (filled, cancelled, and open multi-leg orders).",
     {
-      open_only: z.boolean().default(false).describe("Only return open (unfilled) orders."),
+      title: "Get Option Orders",
+      description:
+        "Get option order history (filled, cancelled, and open multi-leg orders) — the dedicated, official-parity option order-history view: no account_number scoping, no result limit (mirrors Robinhood's own option-orders tool exactly). Prefer robinhood_get_orders when you need account_number scoping, a result limit, or a single tool that also covers stock/crypto order history.",
+      inputSchema: {
+        open_only: z.boolean().default(false).describe("Only return open (unfilled) orders."),
+      },
+      outputSchema: {
+        orders: z.array(z.unknown()),
+      },
+      annotations: READ_ONLY,
     },
     async ({ open_only }) => {
       try {
         const rh = await getAuthenticatedRh();
         const orders = open_only ? await rh.getOpenOptionOrders() : await rh.getAllOptionOrders();
-        return text({ orders });
+        return structured({ orders });
       } catch (e) {
         return textError(String(e));
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "robinhood_get_option_historicals",
-    "Get historical OHLC price series for a specific option contract.",
     {
-      symbol: z.string().describe("Underlying ticker symbol."),
-      expiration_date: z.string().describe("Option expiration date (YYYY-MM-DD)."),
-      strike_price: z.number().describe("Strike price."),
-      option_type: z.enum(["call", "put"]).describe("Option type."),
-      span: z
-        .enum(["day", "week", "month", "3month", "year", "5year"])
-        .default("day")
-        .describe("Time span of the series."),
-      interval: z
-        .enum(["5minute", "10minute", "hour", "day", "week"])
-        .default("hour")
-        .describe("Candle interval."),
+      title: "Get Option Historicals",
+      description: "Get historical OHLC price series for a specific option contract.",
+      inputSchema: {
+        symbol: z.string().describe("Underlying ticker symbol."),
+        expiration_date: z.string().describe("Option expiration date (YYYY-MM-DD)."),
+        strike_price: z.number().describe("Strike price."),
+        option_type: z.enum(["call", "put"]).describe("Option type."),
+        span: z
+          .enum(["day", "week", "month", "3month", "year", "5year"])
+          .default("day")
+          .describe("Time span of the series."),
+        interval: z
+          .enum(["5minute", "10minute", "hour", "day", "week"])
+          .default("hour")
+          .describe("Candle interval."),
+      },
+      outputSchema: {
+        historicals: z.unknown(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ symbol, expiration_date, strike_price, option_type, span, interval }) => {
       try {
@@ -152,7 +189,7 @@ export function registerOptionsTools(server: McpServer): void {
           option_type,
           { span, interval },
         );
-        return text({ historicals });
+        return structured({ historicals });
       } catch (e) {
         return textError(String(e));
       }
