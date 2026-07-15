@@ -1,5 +1,6 @@
 /** HTTP session wrapper for Robinhood API using native fetch. */
 
+import { VERSION } from "../version.js";
 import { trustedOrigins } from "./urls.js";
 
 export const DEFAULT_HEADERS: Record<string, string> = {
@@ -7,7 +8,7 @@ export const DEFAULT_HEADERS: Record<string, string> = {
   "Accept-Language": "en-US,en;q=1",
   "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
   "X-Robinhood-API-Version": "1.431.4",
-  "User-Agent": "robinhood-for-agents/0.1.0",
+  "User-Agent": `robinhood-for-agents/${VERSION}`,
 };
 
 const DEFAULT_TIMEOUT_MS = 16_000;
@@ -116,6 +117,22 @@ export class RobinhoodSession {
       method: "POST",
       headers,
       body: requestBody,
+      signal: AbortSignal.timeout(timeout),
+    });
+  }
+
+  async patch(
+    url: string,
+    body?: Record<string, unknown>,
+    opts?: { timeoutMs?: number },
+  ): Promise<Response> {
+    const timeout = opts?.timeoutMs ?? this.timeoutMs;
+    const headers = this.authHeaders({ ...this.headers });
+    headers["Content-Type"] = "application/json";
+    return this.fetchWithRetry(url, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(body ?? {}),
       signal: AbortSignal.timeout(timeout),
     });
   }

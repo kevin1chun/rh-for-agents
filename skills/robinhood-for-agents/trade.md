@@ -24,21 +24,36 @@ Extract from the user's message:
 - Order type (market/limit/stop) and prices
 - Asset type (stock/option/crypto)
 
-### Step 3: Show Confirmation
-Get current price, then present an order preview:
+### Step 3: Review the order (pre-trade simulation — places nothing)
+**Always run the review first.** It simulates the order over read-only endpoints: it attaches the live quote and reproduces Robinhood's price collar, which catches a mis-priced (fat-fingered) limit/stop order.
+
+```bash
+bun -e '
+import { getClient } from "robinhood-for-agents";
+const rh = getClient();
+await rh.restoreSession();
+const review = await rh.reviewEquityOrder({ symbol: "AAPL", side: "buy", quantity: 10, limitPrice: 150.0, accountNumber: "ACCT" });
+console.log(JSON.stringify(review, null, 2));
+'
 ```
-Order Preview:
-  Action: BUY 10 shares of AAPL
-  Type: Market order
-  Current price: $150.00
-  Estimated cost: ~$1,500.00
+- `order_checks` with an `alert_type` → a price-collar alert (e.g. the limit is far off the market). **Stop and re-confirm the price with the user.**
+- `order_checks` is `{}` **and** `evaluated_checks` is non-empty → the collar ran clean. If `evaluated_checks` is empty (see `not_evaluated_checks`), the collar could not run — do **not** read `{}` as "all clear".
+- Options: use `reviewOptionOrder({ symbol, legs, price, quantity, direction, accountNumber })` — returns per-leg market data + required collateral.
+
+### Step 4: Show the review to the user and confirm
+Present the review output — this is a **stop, not an internal step**. Never chain review→place silently.
+```
+Order Preview (simulated — nothing placed yet):
+  Action: BUY 10 shares of AAPL @ $150.00 limit
+  Current price: $150.00   Estimated cost: ~$1,500.00
+  Price-collar check: OK (or: ⚠️ EXTREMELY_MARKETABLE_LIMIT_PRICE — price looks far off market)
   Account: <account_number>
 
 Proceed? (yes/no)
 ```
-Wait for the user to explicitly confirm.
+Wait for the user to explicitly confirm. If the quote in the review has since gone stale, re-run the review before placing.
 
-### Step 4: Place Order (after user confirms)
+### Step 5: Place Order (after user confirms)
 
 ## Stock Orders
 

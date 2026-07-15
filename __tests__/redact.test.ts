@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactTokens, scrubSensitiveKeys } from "../src/redact.js";
+import { redactTokens, scrubAccountIdentifiers, scrubSensitiveKeys } from "../src/redact.js";
 
 describe("redactTokens", () => {
   const fakeJwt =
@@ -61,6 +61,16 @@ describe("redactTokens", () => {
   it("handles empty string", () => {
     expect(redactTokens("")).toBe("");
   });
+
+  it("redacts the profile uuid in a /followers/{uuid}/ URL (follow/unfollow error path)", () => {
+    const input =
+      "HTTP 500: POST https://api.robinhood.com/discovery/lists/f79523c4-7ac3-4592-91dc-7887039a4ad2/followers/95bf89c0-25ed-46fe-85ff-6618762931c7/";
+    const out = redactTokens(input);
+    expect(out).toContain("/followers/[USER]/");
+    expect(out).not.toContain("95bf89c0-25ed-46fe-85ff-6618762931c7");
+    // the list id (not personal) is left intact
+    expect(out).toContain("f79523c4-7ac3-4592-91dc-7887039a4ad2");
+  });
 });
 
 describe("scrubSensitiveKeys", () => {
@@ -101,5 +111,54 @@ describe("scrubSensitiveKeys", () => {
     const result = scrubSensitiveKeys(obj);
     expect(result.account_number).toBe("1AB23456");
     expect(result.type).toBe("individual");
+  });
+});
+
+describe("scrubAccountIdentifiers", () => {
+  it("drops account-identifier keys from response bodies", () => {
+    const body = {
+      account_number: "1AB23456",
+      account_id: "guid-123",
+      account: "https://api.robinhood.com/accounts/1AB23456/",
+      collateral: { cash: { amount: "100.00", currency: "USD" } },
+    };
+    const result = scrubAccountIdentifiers(body) as Record<string, unknown>;
+    expect(result.account_number).toBeUndefined();
+    expect(result.account_id).toBeUndefined();
+    expect(result.account).toBeUndefined();
+    // Non-identifier data is preserved.
+    expect(result.collateral).toEqual({ cash: { amount: "100.00", currency: "USD" } });
+  });
+
+  it("redacts /accounts/{id}/ URL segments embedded in string values", () => {
+    const body = { url: "https://api.robinhood.com/accounts/1AB23456/unified/", other: "keep" };
+    const result = scrubAccountIdentifiers(body) as Record<string, unknown>;
+    expect(result.url).toBe("https://api.robinhood.com/accounts/[ACCOUNT]/unified/");
+    expect(result.other).toBe("keep");
+  });
+
+  it("recurses into nested objects and arrays", () => {
+    const body = {
+      results: [
+        { account_number: "X", value: 1 },
+        { account_number: "Y", value: 2 },
+      ],
+    };
+    const result = scrubAccountIdentifiers(body) as { results: Array<Record<string, unknown>> };
+    expect(result.results[0]?.account_number).toBeUndefined();
+    expect(result.results[0]?.value).toBe(1);
+    expect(result.results[1]?.value).toBe(2);
+  });
+
+  it("does not modify the original object", () => {
+    const body = { account_number: "1AB23456" };
+    scrubAccountIdentifiers(body);
+    expect(body.account_number).toBe("1AB23456");
+  });
+
+  it("passes primitives through unchanged", () => {
+    expect(scrubAccountIdentifiers(42)).toBe(42);
+    expect(scrubAccountIdentifiers(null)).toBe(null);
+    expect(scrubAccountIdentifiers("plain string")).toBe("plain string");
   });
 });

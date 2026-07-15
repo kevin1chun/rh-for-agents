@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-15
+
+### Added
+
+- **Equity tax lots** — `getEquityTaxLots(symbol, {accountNumber})` client method + `robinhood_get_equity_tax_lots` MCP tool (`GET /tax_lots/open/{account}/{instrument}/`, standard-token readable). Returns the open tax lots for one holding — quantity, book/tax cost basis, acquisition date, long/short-term status, `open_lot_id`. New `TaxLot` type + schema. Symbol resolved by exact match; per-lot `account_number` scrubbed (only the caller-supplied one is echoed); results are complete (no account-encoding pagination cursor is surfaced).
+- **Curated-list follow/unfollow** — `robinhood_follow_watchlist` / `robinhood_unfollow_watchlist` (+ `followWatchlist`/`unfollowWatchlist` client methods). `POST`/`DELETE /discovery/lists/{list_id}/followers/{user_id}/`; the caller's own profile id is resolved internally (never a param), cached per session, and structurally redacted from any error text. Results are declarative (`{list_id, followed}`).
+- **Options-watchlist contract writes** — `robinhood_add_option_to_watchlist` / `robinhood_remove_option_from_watchlist` (+ `quickAddOption`, `getOptionWatchlistContracts`, `getOptionInstrumentById` client methods). Add mints single-leg contracts via `quick_add` (deduped against current contents so it stays idempotent); remove matches by exact `strategy_code` and deletes via the midlands bulk-delete primitive. `position_type` accepts `"long"` only over this path (short-leg entries are directed to the app).
+
+### Changed
+
+- **`robinhood_get_option_watchlist` now returns the contracts** on the options watchlist (each with its `object_id`, derived `option_id`, and `position_type`), rather than just the list metadata — matching the official Trading MCP tool. It reads with `load_all_attributes=false` (the options list rejects the server default). Multi-leg strategies are listed with a null `option_id` and directed to the app.
+
 ## [0.8.0] - 2026-07-14
 
 ### Added

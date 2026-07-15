@@ -179,4 +179,76 @@ export function registerStockTools(server: McpServer): void {
       }
     },
   );
+
+  server.tool(
+    "robinhood_get_equity_price_book",
+    "Get the Level-2 price book (aggregated bid/ask depth) for a stock. Depth is populated during market hours.",
+    {
+      symbol: z.string().describe("Stock ticker symbol."),
+    },
+    async ({ symbol }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const price_book = await rh.getPriceBook(symbol.trim().toUpperCase());
+        return text({ price_book });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.tool(
+    "robinhood_get_earnings_results",
+    "Get historical and upcoming earnings (EPS estimate vs. actual, report date/timing) for one symbol.",
+    {
+      symbol: z.string().describe("Stock ticker symbol."),
+    },
+    async ({ symbol }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const earnings = await rh.getEarnings(symbol.trim().toUpperCase());
+        return text({ symbol: symbol.trim().toUpperCase(), earnings });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.tool(
+    "robinhood_get_earnings_calendar",
+    "Get the market-wide earnings calendar for a window of days (all reporting companies).",
+    {
+      range_days: z
+        .number()
+        .int()
+        .default(7)
+        .describe("Window size: positive = upcoming (e.g. 7 = next 7 days), negative = look-back."),
+    },
+    async ({ range_days }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const calendar = await rh.getEarningsCalendar(range_days);
+        return text({ range_days, count: calendar.length, calendar });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.tool(
+    "robinhood_get_equity_tradability",
+    "Get tradability flags (tradeable, fractional, short-selling, per-account) for one or more symbols.",
+    {
+      symbols: z.array(z.string()).min(1).describe('Ticker symbols, e.g. ["AAPL", "MSFT"].'),
+    },
+    async ({ symbols }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const tradability = await rh.getTradability(symbols);
+        return text({ tradability });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
 }

@@ -83,4 +83,79 @@ export function registerOptionsTools(server: McpServer): void {
       }
     },
   );
+
+  server.tool(
+    "robinhood_get_option_positions",
+    "Get open option positions. Per-leg by default, or grouped by strategy (spreads, condors).",
+    {
+      account_number: z.string().optional().describe("Specific account number, or omit for all."),
+      aggregate: z
+        .boolean()
+        .default(false)
+        .describe("Group by strategy instead of returning individual legs."),
+      nonzero: z.boolean().default(true).describe("Only positions with a non-zero quantity."),
+    },
+    async ({ account_number, aggregate, nonzero }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const positions = aggregate
+          ? await rh.getOptionAggregatePositions({ accountNumber: account_number, nonzero })
+          : await rh.getOptionPositions({ accountNumber: account_number, nonzero });
+        return text({ positions, aggregate });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.tool(
+    "robinhood_get_option_orders",
+    "Get option order history (filled, cancelled, and open multi-leg orders).",
+    {
+      open_only: z.boolean().default(false).describe("Only return open (unfilled) orders."),
+    },
+    async ({ open_only }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const orders = open_only ? await rh.getOpenOptionOrders() : await rh.getAllOptionOrders();
+        return text({ orders });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.tool(
+    "robinhood_get_option_historicals",
+    "Get historical OHLC price series for a specific option contract.",
+    {
+      symbol: z.string().describe("Underlying ticker symbol."),
+      expiration_date: z.string().describe("Option expiration date (YYYY-MM-DD)."),
+      strike_price: z.number().describe("Strike price."),
+      option_type: z.enum(["call", "put"]).describe("Option type."),
+      span: z
+        .enum(["day", "week", "month", "3month", "year", "5year"])
+        .default("day")
+        .describe("Time span of the series."),
+      interval: z
+        .enum(["5minute", "10minute", "hour", "day", "week"])
+        .default("hour")
+        .describe("Candle interval."),
+    },
+    async ({ symbol, expiration_date, strike_price, option_type, span, interval }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const historicals = await rh.getOptionHistoricals(
+          symbol.trim().toUpperCase(),
+          expiration_date,
+          strike_price,
+          option_type,
+          { span, interval },
+        );
+        return text({ historicals });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
 }

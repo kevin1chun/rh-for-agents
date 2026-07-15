@@ -14,13 +14,61 @@ const BEARER_HEADER_PATTERN = /\bBearer\s+[A-Za-z0-9_.-]{10,}\b/gi;
 const SENSITIVE_KEY_PATTERN =
   /"(access_token|refresh_token|device_token|bearer_token|authorization|password|secret)":\s*"([^"]*)"/gi;
 
-/** Redact JWT tokens and known sensitive key values from a string. */
+// The follow/unfollow endpoints embed the caller's OWN profile uuid in the URL
+// path (`/discovery/lists/{list}/followers/{user_id}/`). We never surface that
+// uuid in a success result (follow/unfollow report declaratively), but a failed
+// write can carry the request URL inside an APIError message — strip the uuid
+// segment structurally so it can't leak through error text or any echoed body.
+const FOLLOWER_URL_PATTERN = /(\/followers\/)[^/"?\s]+/g;
+
+/** Redact JWT tokens, known sensitive key values, and profile-uuid follower URLs. */
 export function redactTokens(input: string): string {
   let result = input;
   result = result.replace(SENSITIVE_KEY_PATTERN, `"$1":"${REDACTED}"`);
   result = result.replace(JWT_PATTERN, REDACTED);
   result = result.replace(BEARER_HEADER_PATTERN, `Bearer ${REDACTED}`);
+  result = result.replace(FOLLOWER_URL_PATTERN, "$1[USER]");
   return result;
+}
+
+// Account identifiers are not tokens, but must never be surfaced to a
+// transcript unless the *caller* supplied them (a PII classifier blocks the
+// assistant from discovering an account number). Robinhood responses embed
+// `account_number` and `/accounts/{id}/` URLs in nested fields the caller never
+// passed — strip both from any response body we echo, so the only account
+// identifier that ever appears in tool output is the caller-echoed one.
+const ACCOUNT_URL_PATTERN = /(\/accounts\/)[^/"?\s]+/g;
+const ACCOUNT_ID_KEYS = new Set([
+  "account_number",
+  "account_id",
+  "account",
+  "brokerage_account_id",
+  "account_url",
+]);
+
+/**
+ * Deep-clone `value`, dropping keys that carry an account identifier and
+ * redacting `/accounts/{id}/` URL segments inside any string. Structural, not
+ * value-based — so it can't miss an id it hasn't been told about.
+ */
+export function scrubAccountIdentifiers<T>(value: T): T {
+  if (typeof value === "string") {
+    return value
+      .replace(ACCOUNT_URL_PATTERN, "$1[ACCOUNT]")
+      .replace(FOLLOWER_URL_PATTERN, "$1[USER]") as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => scrubAccountIdentifiers(v)) as unknown as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (ACCOUNT_ID_KEYS.has(k)) continue; // drop identifier-bearing fields entirely
+      out[k] = scrubAccountIdentifiers(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
 }
 
 const SENSITIVE_KEYS = new Set([

@@ -20,15 +20,23 @@ All data retrieval operations. No financial impact.
 | Order Status | `robinhood_get_order_status` | - |
 | Session Check | `robinhood_check_session` | - |
 | Dividends/Documents | - | via code |
-| Watchlists | - | via code |
+| Watchlists (read) | `robinhood_get_watchlists`, `robinhood_get_watchlist_items`, `robinhood_get_popular_watchlists`, `robinhood_get_option_watchlist` | via skill |
+| Scanners (read) | `robinhood_get_scans`, `robinhood_get_scanner_filter_specs` | via skill |
+| Realized P&L (read, computed) | `robinhood_get_realized_pnl`, `robinhood_get_pnl_trade_history` | via skill |
+| Tax Lots (read) | `robinhood_get_equity_tax_lots` | via skill |
+| Order Review (read, simulation) | `robinhood_review_equity_order`, `robinhood_review_option_order` | `robinhood-trade` |
 
 ### Medium Risk
-Operations with limited financial impact or credential exposure.
+Operations with limited financial impact or credential exposure. Includes **reversible, non-financial writes** (watchlist mutations): confirm-before-calling, single-target/single-operation, no order surface.
 
 | Operation | MCP Tool | Skill |
 |-----------|----------|-------|
 | Authentication | `robinhood_browser_login` | `robinhood-setup` |
 | Cancel Single Order | `robinhood_cancel_order` | `robinhood-trade` |
+| Watchlist Add/Remove | `robinhood_add_to_watchlist`, `robinhood_remove_from_watchlist` | via skill |
+| Watchlist Create/Update | `robinhood_create_watchlist`, `robinhood_update_watchlist` | via skill |
+| Watchlist Follow/Unfollow | `robinhood_follow_watchlist`, `robinhood_unfollow_watchlist` | via skill |
+| Options Watchlist Add/Remove | `robinhood_add_option_to_watchlist`, `robinhood_remove_option_from_watchlist` | via skill |
 
 ### High Risk (Write Operations)
 Order placement. Requires explicit parameters — no dangerous defaults.

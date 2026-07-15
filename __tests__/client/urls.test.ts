@@ -5,6 +5,35 @@ describe("URL builders", () => {
   it("uses correct API base", () => {
     expect(urls.API_BASE).toBe("https://api.robinhood.com");
     expect(urls.NUMMUS_BASE).toBe("https://nummus.robinhood.com");
+    expect(urls.BONFIRE_BASE).toBe("https://bonfire.robinhood.com");
+    expect(urls.DORA_BASE).toBe("https://dora.robinhood.com");
+  });
+
+  describe("trustedOrigins", () => {
+    it("includes every host the client talks to", () => {
+      const origins = urls.trustedOrigins();
+      expect(origins.has("https://api.robinhood.com")).toBe(true);
+      expect(origins.has("https://nummus.robinhood.com")).toBe(true);
+      expect(origins.has("https://bonfire.robinhood.com")).toBe(true);
+      expect(origins.has("https://dora.robinhood.com")).toBe(true);
+      expect(origins.has("https://robinhood.com")).toBe(true);
+    });
+  });
+
+  describe("Scanner URLs", () => {
+    it("beaconScans", () =>
+      expect(urls.beaconScans()).toBe("https://api.robinhood.com/beacon/scans/"));
+  });
+
+  describe("Watchlist URLs", () => {
+    it("watchlistsDefault", () =>
+      expect(urls.watchlistsDefault()).toBe("https://api.robinhood.com/discovery/lists/default/"));
+    it("watchlistsPopular", () =>
+      expect(urls.watchlistsPopular()).toBe("https://api.robinhood.com/discovery/lists/popular/"));
+    it("watchlistItems", () =>
+      expect(urls.watchlistItems()).toBe("https://api.robinhood.com/discovery/lists/items/"));
+    it("watchlistItemsWrite", () =>
+      expect(urls.watchlistItemsWrite()).toBe("https://api.robinhood.com/midlands/lists/items/"));
   });
 
   describe("Auth URLs", () => {
@@ -34,6 +63,25 @@ describe("URL builders", () => {
     it("portfolioHistoricals", () =>
       expect(urls.portfolioHistoricals("123")).toBe(
         "https://api.robinhood.com/portfolios/historicals/123/",
+      ));
+    it("unifiedPortfolio (bonfire)", () =>
+      expect(urls.unifiedPortfolio("123")).toBe(
+        "https://bonfire.robinhood.com/accounts/123/unified/",
+      ));
+    it("portfolioLive (bonfire)", () =>
+      expect(urls.portfolioLive("123")).toBe(
+        "https://bonfire.robinhood.com/portfolio/account/123/live/",
+      ));
+  });
+
+  describe("Phase 1A market-data URLs", () => {
+    it("priceBookSnapshot", () =>
+      expect(urls.priceBookSnapshot("inst1")).toBe(
+        "https://api.robinhood.com/marketdata/pricebook/snapshots/inst1/",
+      ));
+    it("optionHistoricals", () =>
+      expect(urls.optionHistoricals("opt1")).toBe(
+        "https://api.robinhood.com/marketdata/options/historicals/opt1/",
       ));
   });
 
@@ -109,6 +157,10 @@ describe("URL builders", () => {
       ["account", urls.account],
       ["portfolio", urls.portfolio],
       ["portfolioHistoricals", urls.portfolioHistoricals],
+      ["unifiedPortfolio", urls.unifiedPortfolio],
+      ["portfolioLive", urls.portfolioLive],
+      ["priceBookSnapshot", urls.priceBookSnapshot],
+      ["optionHistoricals", urls.optionHistoricals],
       ["quote", urls.quote],
       ["instrument", urls.instrument],
       ["fundamental", urls.fundamental],

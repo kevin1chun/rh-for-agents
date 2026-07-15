@@ -39,4 +39,36 @@ export function registerMarketTools(server: McpServer): void {
       }
     },
   );
+
+  server.tool(
+    "robinhood_get_indexes",
+    "Get all tradable market indexes (SPX, NDX, VIX, RUT, XSP, …).",
+    {},
+    async () => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const indexes = await rh.getIndexInstruments();
+        return text({ indexes });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.tool(
+    "robinhood_get_index_quotes",
+    "Get current values for one or more index symbols.",
+    {
+      symbols: z.array(z.string()).min(1).describe('Index symbols, e.g. ["SPX", "VIX"].'),
+    },
+    async ({ symbols }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const quotes = await rh.getIndexQuotes(symbols);
+        return text({ quotes });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
 }

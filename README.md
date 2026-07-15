@@ -5,11 +5,11 @@
 [![ClawHub](https://img.shields.io/badge/ClawHub-robinhood--for--agents-blue)](https://clawhub.ai/kevin1chun/robinhood-for-agents)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Robinhood for AI agents — MCP server with 18 tools + TypeScript client library.
+Robinhood for AI agents — MCP server with 49 tools + TypeScript client library.
 
-- **18 MCP tools** for any MCP-compatible AI agent
+- **49 MCP tools** for any MCP-compatible AI agent
 - **Unified trading skill** for guided workflows (Claude Code, OpenClaw, [ClawHub](https://clawhub.ai/kevin1chun/robinhood-for-agents))
-- **TypeScript client library** (~50 async methods) for programmatic use
+- **TypeScript client library** (70+ async methods) for programmatic use
 - **Pluggable token storage** — OS keychain (default) or encrypted file (Docker/headless)
 
 Compatible with **Claude Code**, **Codex**, **OpenClaw**, and any MCP-compatible agent.
@@ -17,7 +17,7 @@ Compatible with **Claude Code**, **Codex**, **OpenClaw**, and any MCP-compatible
 ## Prerequisites
 
 - [Bun](https://bun.sh/) v1.0+
-- Google Chrome (used by `playwright-core` for browser-based login — no bundled browser)
+- A Chromium-based browser for login — Chrome, Brave, or Chromium (auto-detected on macOS; driven by `playwright-core`, no bundled browser). Override with `BROWSER_PATH` or `--chrome`.
 - A Robinhood account
 
 ## Quick Start
@@ -62,7 +62,7 @@ cd your-project
 robinhood-for-agents install --skills
 ```
 
-Restart Claude Code to pick up the changes. Claude Code supports the unified trading skill in addition to the 18 MCP tools — see [Skill](#skill).
+Restart Claude Code to pick up the changes. Claude Code supports the unified trading skill in addition to the 49 MCP tools — see [Skill](#skill).
 </details>
 
 <details>
@@ -72,7 +72,7 @@ Restart Claude Code to pick up the changes. Claude Code supports the unified tra
 codex mcp add robinhood-for-agents -- bun run /path/to/bin/robinhood-for-agents.ts
 ```
 
-Restart Codex to pick up the changes. Codex uses all 18 MCP tools directly.
+Restart Codex to pick up the changes. Codex uses all 49 MCP tools directly.
 </details>
 
 <details>
@@ -117,27 +117,40 @@ Add to your MCP client's config (e.g. `~/Library/Application Support/Claude/clau
 
 ## Authenticate
 
-Start your agent and say "setup robinhood" (or call `robinhood_browser_login` directly). Chrome will open to the real Robinhood login page — log in with your credentials and MFA. The session is cached and auto-restores for ~24 hours.
+Start your agent and say "setup robinhood" (or call `robinhood_browser_login` directly). Your browser will open to the real Robinhood login page — log in with your credentials and MFA. The session is cached in your OS keychain and auto-refreshes when the access token expires (via the stored refresh token), so you stay logged in for roughly a week before a browser re-login is needed.
 
-## MCP Tools (20)
+## MCP Tools (49)
 
-All 20 tools work with every MCP-compatible agent.
+All 49 tools work with every MCP-compatible agent.
 
 | Tool | Description |
 |------|-------------|
 | `robinhood_browser_login` | Authenticate via Chrome browser |
 | `robinhood_check_session` | Check if cached session is valid |
-| `robinhood_get_portfolio` | Portfolio: positions, P&L, equity, cash |
+| `robinhood_get_portfolio` | Portfolio: positions, P&L, equity, cash, buying power |
+| `robinhood_get_equity_positions` | Raw equity positions (shares, avg price) |
+| `robinhood_get_equity_tax_lots` | Open tax lots for one equity holding (cost basis, term, open date) |
 | `robinhood_get_accounts` | List all brokerage accounts |
 | `robinhood_get_account` | Account details and profile |
 | `robinhood_get_stock_quote` | Stock quotes and fundamentals |
 | `robinhood_get_fundamentals` | Fundamentals: float, shares outstanding, valuation, profile |
 | `robinhood_get_short_interest` | Daily short-interest estimate (% of float, with bounds) |
 | `robinhood_get_historicals` | OHLCV price history |
+| `robinhood_get_equity_price_book` | Level-2 price book (bid/ask depth) |
+| `robinhood_get_equity_tradability` | Tradability flags (fractional, short-selling, per-account) |
+| `robinhood_get_earnings_results` | Earnings for a symbol (EPS estimate vs. actual) |
+| `robinhood_get_earnings_calendar` | Market-wide earnings calendar for a day window |
 | `robinhood_get_news` | News, analyst ratings, earnings |
 | `robinhood_get_movers` | Market movers and popular stocks |
+| `robinhood_get_indexes` | Tradable market indexes (SPX, NDX, VIX, …) |
+| `robinhood_get_index_quotes` | Current values for index symbols |
 | `robinhood_get_options` | Options chain with greeks |
+| `robinhood_get_option_positions` | Open option positions (per-leg or by strategy) |
+| `robinhood_get_option_orders` | Option order history |
+| `robinhood_get_option_historicals` | Historical OHLC for a specific option contract |
 | `robinhood_get_crypto` | Crypto quotes, history, positions |
+| `robinhood_review_equity_order` | Simulate a stock order before placing (price-collar check, live quote) |
+| `robinhood_review_option_order` | Simulate an option order before placing (per-leg data, collateral) |
 | `robinhood_place_stock_order` | Place stock orders (market/limit/stop/trailing) |
 | `robinhood_place_option_order` | Place option orders |
 | `robinhood_place_crypto_order` | Place crypto orders |
@@ -145,6 +158,22 @@ All 20 tools work with every MCP-compatible agent.
 | `robinhood_cancel_order` | Cancel an order by ID |
 | `robinhood_get_order_status` | Get status of a specific order by ID |
 | `robinhood_search` | Search stocks or browse categories |
+| `robinhood_get_watchlists` | List your own watchlists (with list ids) |
+| `robinhood_get_watchlist_items` | Items of a watchlist (enriched with symbols) |
+| `robinhood_get_popular_watchlists` | Robinhood-curated lists to follow |
+| `robinhood_get_option_watchlist` | Your options watchlist — single-leg option contracts |
+| `robinhood_create_watchlist` | Create a new watchlist (confirm first) |
+| `robinhood_update_watchlist` | Rename / re-describe a watchlist (confirm first) |
+| `robinhood_add_to_watchlist` | Add symbols / indexes / crypto to a list (confirm first) |
+| `robinhood_remove_from_watchlist` | Remove items from a list (confirm first) |
+| `robinhood_follow_watchlist` | Follow a Robinhood-curated list (confirm first) |
+| `robinhood_unfollow_watchlist` | Unfollow a curated list (confirm first) |
+| `robinhood_add_option_to_watchlist` | Add long single-leg option contracts to the options watchlist (confirm first) |
+| `robinhood_remove_option_from_watchlist` | Remove single-leg option contracts from the options watchlist (confirm first) |
+| `robinhood_get_scans` | List your saved scanners (screeners) |
+| `robinhood_get_scanner_filter_specs` | Filter vocabulary for building scans (RSI/MACD/fundamentals/…) |
+| `robinhood_get_realized_pnl` | Realized P&L over a window, bucketed (computed FIFO; equity + crypto) |
+| `robinhood_get_pnl_trade_history` | Per-trade realized P&L (computed FIFO; equity + crypto) |
 
 ## Skill
 
@@ -171,7 +200,7 @@ The skill uses progressive disclosure — `SKILL.md` is the compact router, with
 
 | Feature | Claude Code | Codex | OpenClaw | Other MCP |
 |---------|:-----------:|:-----:|:--------:|:---------:|
-| 18 MCP tools | Yes | Yes | — | Yes |
+| 49 MCP tools | Yes | Yes | — | Yes |
 | Trading skill | Yes | — | Yes | — |
 | ClawHub install | — | — | Yes | — |
 | `onboard` setup | Yes | Yes | Yes | — |
