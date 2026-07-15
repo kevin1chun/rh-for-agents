@@ -149,3 +149,46 @@ class JWTVerifier implements AgentVerifier {
 ```
 
 Register it in `server.ts` or extend the `createVerifier` factory.
+
+## External Process Verifier
+
+A custom verifier does not have to implement crypto in this codebase. The same `AgentVerifier` plug point can delegate the decision to a spawnable external verifier process: write one JSON request to its stdin, read exactly one allow/deny verdict from stdout, and fail closed on everything else (timeout, nonzero exit, malformed or oversized output). The gateway keeps policy and enforcement; the external process owns only the question "is this agent what it claims to be, with these permissions?"
+
+```typescript
+import type { AgentVerifier, VerificationResult } from "./gateway";
+
+type ExternalVerifierVerdict = {
+  decision: "allow" | "deny";
+  agentId?: string;
+  permissions?: string[];
+};
+
+// App helper: spawn the command, write one JSON request to stdin,
+// read one bounded JSON verdict from stdout, enforce timeout, and return null on error.
+declare function runVerifier(
+  command: string,
+  args: string[],
+  request: { bundle: string; action: string },
+): Promise<ExternalVerifierVerdict | null>;
+
+class ExternalProcessVerifier implements AgentVerifier {
+  async verify(credential: string): Promise<VerificationResult> {
+    const verdict = await runVerifier("bolyra", ["verify"], {
+      bundle: credential,
+      action: "tools/call",
+    });
+
+    if (verdict?.decision !== "allow") return { verified: false };
+
+    return {
+      verified: true,
+      agentId: verdict.agentId,
+      permissions: verdict.permissions,
+    };
+  }
+}
+```
+
+An open, host-agnostic version of this contract exists as [External Verifier Contract v1](https://github.com/bolyra/bolyra/blob/main/spec/external-verifier-contract-v1.md), with conformance vectors that exercise the failure modes above (including deliberately misbehaving verifiers to test a host's fail-closed handling), JS and Rust reference hosts, and `bolyra verify` as one spawnable implementation. Verifiers self-describe a `kind` (`classical | zk | external`), so a host can start with classical signature verification and adopt zero-knowledge verification later without changing this subprocess integration.
+
+This composes with the shared-secret and JWT options above rather than replacing them: use those when verification logic is simple enough to live in-process, and the external shape when you want the verification surface out of the gateway entirely.
