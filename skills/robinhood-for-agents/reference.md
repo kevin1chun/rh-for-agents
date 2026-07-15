@@ -14,6 +14,8 @@ Open Chrome for browser-based Robinhood login. Captures OAuth tokens automatical
 
 **Parameters:** none
 
+**Timeout note for MCP client authors:** this call waits up to 5 minutes server-side for the user to complete login (including MFA) before the OAuth token exchange resolves. Most MCP SDKs default `callTool`'s request timeout to 60 seconds, which is shorter than that — if you're driving this tool programmatically (not through Claude Code, which already handles this), pass a longer per-call timeout (e.g. the TypeScript SDK's `client.callTool(params, resultSchema, { timeout: 330_000 })`) or the call will abort client-side while the user is still mid-login.
+
 ### robinhood_get_account
 Get account details, profile, and investment preferences.
 
@@ -71,6 +73,8 @@ Get complete portfolio: positions with P&L, equity, buying power, cash.
 }
 ```
 The `summary` now includes bonfire `unified` + `live` parity fields; the full `unified`/`live` objects are also returned.
+
+**Multi-account caveat:** when `account_number` is a non-default account (from `robinhood_get_accounts`), `unified` comes back `null` and the six `unified`-sourced summary fields (`total_equity`, `total_market_value`, `portfolio_equity`, `options_buying_power`, `uninvested_cash`, `withdrawable_cash`) are omitted — bonfire's unified-portfolio endpoint only recognizes the account Robinhood treats as default, and 404s for every other real account_number. `holdings`, the original `equity`/`cash`/`buying_power` fields, and `live` are unaffected and always populated. This is a live Robinhood API quirk, not a bug in this server — don't retry or treat a `null` `unified` as an error.
 
 ### robinhood_get_equity_positions
 Get raw equity positions (shares, average buy price) without holding enrichment.

@@ -71,6 +71,8 @@ Legend — **SDK:** ✅ have · 🔶 gap · 🆕 gap+new-capability. **Verify:**
 | `search` | ✅ | `GET /instruments/?query=` (also `asset_type=currency_pair`/`market_index`) | live |
 
 DTO `get_portfolio`: `total_value, equity_value, options_value, futures_value, event_contracts_value, crypto_value, cash, pending_deposits, mutual_funds_value, fixed_income_value, currency, buying_power{buying_power, unleveraged_buying_power, display_currency}`
+
+**Correction (live multi-account testing, post-ship):** §"multi-account: bonfire is account-scoped by path" (below) turned out to be only half true. `bonfire/portfolio/account/{acct}/live` and `/portfolios/{acct}/` genuinely accept any of the user's real account numbers. `bonfire/accounts/{acct}/unified/` does not — it 404s for every account_number except the one Robinhood treats as default, live-verified across a 4-account (cash × 3 + margin) session. `getUnifiedPortfolio()` now catches that 404 and returns `null` instead of throwing; `robinhood_get_portfolio` degrades gracefully (the six unified-sourced summary fields are omitted, everything else still populates). See `src/client/client.ts`'s `getUnifiedPortfolio` and `skills/robinhood-for-agents/{reference,client-api,portfolio}.md` for the user-facing writeup.
 DTO `get_realized_pnl`: `{account_number, window, display_currency, data_points[{start_time, end_time, realized_gain, rate_of_realized_gain, number_of_trades}], total_returns, total_rate_of_return}`
 DTO `get_pnl_trade_history`: `{account_number, span, trades[{symbol, side, quantity, price, realized_gain}], next_cursor}`
 

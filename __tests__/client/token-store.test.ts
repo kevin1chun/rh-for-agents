@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTokenStore,
+  deleteTokens,
   EncryptedFileTokenStore,
   KeychainTokenStore,
+  loadTokens,
+  saveTokens,
   type TokenData,
 } from "../../src/client/token-store.js";
 
@@ -169,5 +172,75 @@ describe("createTokenStore", () => {
     process.env.ROBINHOOD_TOKENS_FILE = "/tmp/test-tokens.enc";
     const store = createTokenStore();
     expect(store).toBeInstanceOf(EncryptedFileTokenStore);
+  });
+});
+
+// Regression: saveTokens/loadTokens/deleteTokens (used by browser-auth.ts's
+// interactive login and onboard.ts) previously delegated to a hardcoded
+// KeychainTokenStore regardless of ROBINHOOD_TOKENS_FILE, so logging in while
+// file-store mode was configured silently wrote to the keychain instead of
+// the file — restoreSession() (which does honor createTokenStore()) would
+// then never find a session. They must track createTokenStore()'s pick.
+describe("legacy exports (saveTokens/loadTokens/deleteTokens) respect createTokenStore()", () => {
+  const origEnv = process.env.ROBINHOOD_TOKENS_FILE;
+  let dir: string;
+  let filePath: string;
+  const origKey = process.env.ROBINHOOD_TOKEN_KEY;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSecretsStore.clear();
+    dir = mkdtempSync(join(tmpdir(), "rh-legacy-test-"));
+    filePath = join(dir, "tokens.enc");
+    process.env.ROBINHOOD_TOKEN_KEY = Buffer.from("01234567890123456789012345678901").toString(
+      "base64",
+    );
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    if (origEnv !== undefined) process.env.ROBINHOOD_TOKENS_FILE = origEnv;
+    else delete process.env.ROBINHOOD_TOKENS_FILE;
+    if (origKey !== undefined) process.env.ROBINHOOD_TOKEN_KEY = origKey;
+    else delete process.env.ROBINHOOD_TOKEN_KEY;
+  });
+
+  it("without ROBINHOOD_TOKENS_FILE, saveTokens/loadTokens/deleteTokens use the keychain", async () => {
+    delete process.env.ROBINHOOD_TOKENS_FILE;
+    await saveTokens(sampleTokens);
+    expect(mockSecrets.set).toHaveBeenCalledWith(
+      "robinhood-for-agents",
+      "session-tokens",
+      expect.any(String),
+    );
+
+    const loaded = await loadTokens();
+    expect(loaded?.access_token).toBe("tok123");
+
+    await deleteTokens();
+    expect(mockSecrets.delete).toHaveBeenCalledWith({
+      service: "robinhood-for-agents",
+      name: "session-tokens",
+    });
+  });
+
+  it("with ROBINHOOD_TOKENS_FILE set, saveTokens/loadTokens/deleteTokens use the file — not the keychain", async () => {
+    process.env.ROBINHOOD_TOKENS_FILE = filePath;
+    await saveTokens(sampleTokens);
+
+    // Never touched the keychain for the tokens themselves.
+    expect(mockSecrets.set).not.toHaveBeenCalledWith(
+      "robinhood-for-agents",
+      "session-tokens",
+      expect.any(String),
+    );
+    const content = readFileSync(filePath, "utf8");
+    expect(content).not.toContain("tok123"); // encrypted, not plaintext
+
+    const loaded = await loadTokens();
+    expect(loaded?.access_token).toBe("tok123");
+
+    await deleteTokens();
+    expect(await loadTokens()).toBeNull();
   });
 });

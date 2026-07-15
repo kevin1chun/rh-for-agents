@@ -593,6 +593,36 @@ describe("Phase 1A parity tools", () => {
     expect(data.positions).toHaveLength(1);
   });
 
+  it("an account_number selected from get_accounts flows unredacted into get_portfolio (regression guard for #14)", async () => {
+    const { registerPortfolioTools } = await import("../../src/server/tools/portfolio.js");
+    const { getClient } = await import("../../src/client/index.js");
+    const { server, tools } = captureMockServer();
+    registerPortfolioTools(server);
+
+    const rh = getClient();
+    const getAccounts = rh.getAccounts as ReturnType<typeof vi.fn>;
+    const getAccountProfile = rh.getAccountProfile as ReturnType<typeof vi.fn>;
+    const buildHoldings = rh.buildHoldings as ReturnType<typeof vi.fn>;
+    getAccounts.mockResolvedValueOnce([
+      { url: "https://api.robinhood.com/accounts/ABC123/", account_number: "ABC123", type: "cash" },
+      { url: "https://api.robinhood.com/accounts/XYZ999/", account_number: "XYZ999", type: "ira" },
+    ]);
+    getAccountProfile.mockClear();
+    buildHoldings.mockClear();
+
+    // Step 1 (issue #14 repro): list accounts, as an agent would to let the user pick one.
+    const accountsData = await callTool(tools, "robinhood_get_accounts");
+    const ira = accountsData.accounts.find((a: { type: string }) => a.type === "ira");
+    expect(ira.account_number).toBe("XYZ999"); // real id, never "[REDACTED]"
+
+    // Step 2 (issue #14 repro): feed the selected account back into an account-scoped tool.
+    await callTool(tools, "robinhood_get_portfolio", { account_number: ira.account_number });
+    expect(buildHoldings).toHaveBeenCalledWith(
+      expect.objectContaining({ accountNumber: "XYZ999" }),
+    );
+    expect(getAccountProfile).toHaveBeenCalledWith("XYZ999");
+  });
+
   it("option tools return positions / orders / historicals", async () => {
     const { registerOptionsTools } = await import("../../src/server/tools/options.js");
     const { server, tools } = captureMockServer();

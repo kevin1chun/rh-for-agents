@@ -183,11 +183,22 @@ export class RobinhoodClient {
    * Unified portfolio snapshot (bonfire): total equity, per-bucket market
    * values, and the full buying-power breakdown (equity/options/crypto). This
    * is the data the official `get_portfolio` tool surfaces.
+   *
+   * Bonfire's unified endpoint only recognizes a user's default account
+   * number — every other real, valid account_number 404s here even though
+   * the sibling `portfolioLive`/`portfolios` endpoints accept it fine. Treat
+   * that 404 as "no unified snapshot for this account" rather than failing
+   * the whole call, so scoping to a non-default account doesn't break.
    */
-  async getUnifiedPortfolio(accountNumber?: string): Promise<UnifiedPortfolio> {
+  async getUnifiedPortfolio(accountNumber?: string): Promise<UnifiedPortfolio | null> {
     this.requireAuth();
     const acct = await this.resolveAccountNumber(accountNumber);
-    return (await requestGet(this.session, urls.unifiedPortfolio(acct))) as UnifiedPortfolio;
+    try {
+      return (await requestGet(this.session, urls.unifiedPortfolio(acct))) as UnifiedPortfolio;
+    } catch (e) {
+      if (e instanceof NotFoundError) return null;
+      throw e;
+    }
   }
 
   /** Live per-asset-class market values + cash (bonfire). */

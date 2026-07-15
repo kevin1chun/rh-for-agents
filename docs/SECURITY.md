@@ -75,6 +75,11 @@ This is a property of the OS keychain model, not a bug in this project. It is th
 
 This is the critical tradeoff. See the attack scenarios below.
 
+**Two implementation details worth knowing:**
+
+- **File mode is set on creation only.** `writeFile(..., { mode: 0o600 })` applies when the file doesn't already exist; it is not re-asserted on every write, and the write itself isn't atomic (no write-to-temp-then-rename). If the file was ever created with looser permissions by another process, or a write is interrupted mid-flight, that isn't self-healing.
+- **A persistent `ROBINHOOD_TOKEN_KEY` (e.g., exported from a shell profile like `.zshrc`) puts the key in plaintext on disk in that dotfile, and hands it to every child process spawned from that shell** — not just this SDK. That's a real, ongoing exposure distinct from the Docker-container scenario below (no container boundary involved at all), and it's easy to set up once for convenience and forget about. Prefer the OS keychain for the key unless you specifically need portability.
+
 ## Attack scenarios
 
 ### Scenario A: Plaintext token file (DO NOT DO THIS)

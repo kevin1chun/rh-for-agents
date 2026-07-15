@@ -85,8 +85,8 @@ const portfolio = await rh.getPortfolioProfile();
 // => { equity, market_value, ... }
 ```
 
-### `getUnifiedPortfolio(accountNumber?): Promise<UnifiedPortfolio>`
-Total equity + full buying-power breakdown (bonfire) — the data behind `robinhood_get_portfolio`'s `unified` field.
+### `getUnifiedPortfolio(accountNumber?): Promise<UnifiedPortfolio | null>`
+Total equity + full buying-power breakdown (bonfire) — the data behind `robinhood_get_portfolio`'s `unified` field. **Returns `null` for any non-default account** — bonfire's `/accounts/{id}/unified/` endpoint 404s for every account_number except the one Robinhood treats as default, even though it's a real, valid account and the sibling `getPortfolioLive`/`getPortfolioProfile`/`getPositions` calls accept it fine. The 404 is caught and mapped to `null` rather than thrown (an invalid/unknown account_number also 404s here and gets the same `null`, since bonfire returns 404 either way — this method can't distinguish the two cases), so scoping to a non-default account doesn't break the call — the six `unified`-sourced summary fields (`total_equity`, `total_market_value`, `portfolio_equity`, `options_buying_power`, `uninvested_cash`, `withdrawable_cash`) are just `undefined` in that case; everything else (`holdings`, `cash`, `buying_power`, `live`) is unaffected. (Omitting `accountNumber` entirely still throws if the caller has no accounts at all — only the per-request 404 is swallowed, not account resolution.)
 
 ### `getPortfolioLive(accountNumber?): Promise<PortfolioLive>`
 Live per-asset-class market values + cash (bonfire) — the data behind `robinhood_get_portfolio`'s `live` field.

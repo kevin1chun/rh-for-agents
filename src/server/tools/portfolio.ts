@@ -69,13 +69,15 @@ export function registerPortfolioTools(server: McpServer): void {
             buying_power: accountProfile.buying_power,
             crypto_buying_power: accountProfile.crypto_buying_power,
             cash_available_for_withdrawal: accountProfile.cash_available_for_withdrawal,
-            // parity fields (from bonfire unified + live)
-            total_equity: unified.total_equity?.amount,
-            total_market_value: unified.total_market_value?.amount,
-            portfolio_equity: unified.portfolio_equity?.amount,
-            options_buying_power: unified.options_buying_power?.amount,
-            uninvested_cash: unified.uninvested_cash?.amount,
-            withdrawable_cash: unified.withdrawable_cash?.amount,
+            // parity fields (from bonfire unified + live) — unified is null
+            // when bonfire has no unified snapshot for this account (only
+            // the default account has one; see getUnifiedPortfolio).
+            total_equity: unified?.total_equity?.amount,
+            total_market_value: unified?.total_market_value?.amount,
+            portfolio_equity: unified?.portfolio_equity?.amount,
+            options_buying_power: unified?.options_buying_power?.amount,
+            uninvested_cash: unified?.uninvested_cash?.amount,
+            withdrawable_cash: unified?.withdrawable_cash?.amount,
             equity_market_value: live.equity_market_value,
             option_market_value: live.option_market_value,
             futures_market_value: live.futures_market_value,

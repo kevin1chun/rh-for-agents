@@ -17,11 +17,11 @@ If `logged_in` — already authenticated, stop. Otherwise continue.
 ```bash
 bunx robinhood-for-agents onboard
 ```
-This runs the interactive setup — it will open your browser (Chrome, Brave, or Chromium — auto-detected on macOS; override with `BROWSER_PATH`) to the real Robinhood website for login:
+This runs the interactive setup — it will open Google Chrome (via Playwright's `channel: "chrome"`; Chrome must be installed — no Brave/Chromium fallback or `BROWSER_PATH` override exist yet) to the real Robinhood website for login:
 1. Browser opens to robinhood.com/login
 2. User enters email and password
 3. Robinhood handles MFA natively (push notification, SMS, etc.)
-4. Token captured automatically and saved to OS keychain
+4. Token captured automatically and saved to the configured token store (OS keychain by default, or an encrypted file if `ROBINHOOD_TOKENS_FILE` is set)
 5. Browser closes when login is complete
 
 ### Step 3: Verify

@@ -915,7 +915,7 @@ describe("RobinhoodClient", () => {
         expect.anything(),
         "https://bonfire.robinhood.com/accounts/ACC1/unified/",
       );
-      expect(u.total_equity?.amount).toBe("1");
+      expect(u?.total_equity?.amount).toBe("1");
     });
 
     it("getUnifiedPortfolio accepts an explicit account number (no lookup)", async () => {
@@ -925,6 +925,22 @@ describe("RobinhoodClient", () => {
         expect.anything(),
         "https://bonfire.robinhood.com/accounts/ACCX/unified/",
       );
+    });
+
+    it("getUnifiedPortfolio returns null (not throw) when bonfire 404s for a non-default account", async () => {
+      mockRequestGet.mockRejectedValueOnce(new NotFoundError("HTTP 404"));
+      const u = await client.getUnifiedPortfolio("ACCX");
+      expect(u).toBeNull();
+    });
+
+    it("getUnifiedPortfolio still rejects on a non-404 error", async () => {
+      mockRequestGet.mockRejectedValueOnce(new Error("network blip"));
+      await expect(client.getUnifiedPortfolio("ACCX")).rejects.toThrow("network blip");
+    });
+
+    it("getUnifiedPortfolio still rejects when there is no account to resolve at all — the 404-swallow is scoped to the unified request only, not account resolution", async () => {
+      mockRequestGet.mockResolvedValueOnce([]); // getAccounts() -> no accounts
+      await expect(client.getUnifiedPortfolio()).rejects.toThrow("No brokerage account found");
     });
 
     it("getPortfolioLive hits the bonfire live endpoint", async () => {

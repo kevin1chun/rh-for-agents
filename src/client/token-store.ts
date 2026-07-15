@@ -228,20 +228,25 @@ export function createTokenStore(): TokenStore {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy exports — used by browser-auth.ts to save tokens after login.
-// These delegate to KeychainTokenStore for backward compatibility.
+// Legacy exports — used by browser-auth.ts (login) and onboard.ts (existing-
+// session check). Delegate to createTokenStore()'s env-aware pick, so a
+// ROBINHOOD_TOKENS_FILE-configured deployment writes/reads the file store
+// consistently everywhere, not just through an explicit `new
+// EncryptedFileTokenStore()`. Previously these were hardcoded to
+// KeychainTokenStore, so browser-based login always wrote to the keychain
+// even when ROBINHOOD_TOKENS_FILE was set — silently breaking file-store mode
+// for any user who logs in interactively rather than importing an encrypted
+// token file.
 // ---------------------------------------------------------------------------
 
-const _keychainStore = new KeychainTokenStore();
-
 export async function saveTokens(tokens: Omit<TokenData, "saved_at">): Promise<void> {
-  await _keychainStore.save(withTimestamp(tokens));
+  await createTokenStore().save(withTimestamp(tokens));
 }
 
 export async function loadTokens(): Promise<TokenData | null> {
-  return _keychainStore.load();
+  return createTokenStore().load();
 }
 
 export async function deleteTokens(): Promise<void> {
-  await _keychainStore.delete();
+  await createTokenStore().delete();
 }

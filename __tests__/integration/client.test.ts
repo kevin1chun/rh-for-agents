@@ -97,7 +97,13 @@ suite("integration: RobinhoodClient (live, read-only)", () => {
 
   it("gets unified portfolio (bonfire)", async () => {
     const unified = await client.getUnifiedPortfolio(firstAccount);
-    expect(unified.total_equity?.amount ?? unified.account_number).toBeDefined();
+    // null is a valid response — bonfire's unified endpoint only recognizes
+    // the account Robinhood treats as default, so a non-default (but still
+    // real) account_number 404s and getUnifiedPortfolio maps that to null
+    // rather than throwing. Only check shape when data actually came back.
+    if (unified !== null) {
+      expect(unified.total_equity?.amount ?? unified.account_number).toBeDefined();
+    }
   });
 
   it("gets live portfolio (bonfire)", async () => {

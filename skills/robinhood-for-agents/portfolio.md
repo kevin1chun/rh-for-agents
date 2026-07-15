@@ -35,6 +35,8 @@ console.log(JSON.stringify(btc, null, 2));
 rh.buildHoldings({ accountNumber: "ACCT_ID" })
 ```
 
+**Caveat:** for `robinhood_get_portfolio` / `getUnifiedPortfolio(accountNumber)`, only Robinhood's *default* account returns a populated `unified` snapshot — any other real, valid account_number gets `unified: null` (bonfire's unified-portfolio endpoint 404s for non-default accounts). Holdings, cash, and buying power are unaffected either way; only the bonfire-sourced parity fields (`total_equity`, `total_market_value`, `portfolio_equity`, `options_buying_power`, `uninvested_cash`, `withdrawable_cash`) are missing when scoped to a non-default account. Don't treat a `null` `unified` as a failure.
+
 ## Output Format
 Present results as a formatted table:
 - Account summary: account number, type, portfolio value, cash, buying power
