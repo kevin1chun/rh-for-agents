@@ -17,7 +17,7 @@ Compatible with **Claude Code**, **Codex**, **OpenClaw**, and any MCP-compatible
 ## Prerequisites
 
 - [Bun](https://bun.sh/) v1.0+
-- A Chromium-based browser for login — Chrome, Brave, or Chromium (auto-detected on macOS; driven by `playwright-core`, no bundled browser). Override with `BROWSER_PATH` or `--chrome`.
+- Google Chrome for login (driven by `playwright-core` via `channel: "chrome"`, no bundled browser). Chrome must be installed — there's no Brave/Chromium fallback or `BROWSER_PATH` override yet.
 - A Robinhood account
 
 ## Quick Start

@@ -61,6 +61,7 @@
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "check:fix": "biome check --write .",
+    "onboard": "bun bin/robinhood-for-agents.ts onboard",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "bun test __tests__/integration/",
