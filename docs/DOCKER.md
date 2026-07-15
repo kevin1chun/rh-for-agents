@@ -115,7 +115,7 @@ The `EncryptedFileTokenStore`:
 Kill the container. Once it is gone:
 - No process can read the encryption key from its env vars
 - The encrypted file on the host is useless without the key
-- No further token refreshes will occur, so the current access token expires naturally (~24h)
+- No further token refreshes will occur, so the current access token expires naturally (~8.5 days after it was issued)
 
 To revoke immediately, delete the encrypted file on the host:
 

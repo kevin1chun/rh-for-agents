@@ -3,34 +3,44 @@
 ## Adding a New MCP Tool
 
 1. Identify which `src/server/tools/` file it belongs in (or create a new one)
-2. Import `{ getAuthenticatedRh, text }` from `./_helpers.js`
-3. Register with `server.tool(name, description, zodSchema, handler)`
-4. Define the input schema with Zod — MCP uses these for the tool schema
-5. Wrap the handler body in try/catch, return `text({ error: String(e) })` on failure
-6. If a new file, import and call its `register*Tools(server)` in `server.ts`
-7. Add tests in `__tests__/server/tools.test.ts`
+2. Import `{ getAuthenticatedRh, structured, textError }` from `./_helpers.js`
+3. Register with `server.registerTool(name, { title, description, inputSchema, outputSchema, annotations }, handler)`
+4. Define `inputSchema` with Zod — MCP uses these for the tool schema. Set `annotations.readOnlyHint: true` for reads; for writes set `readOnlyHint: false` plus honest `destructiveHint`/`idempotentHint`
+5. Define `outputSchema` for the success shape. Type only the envelope keys your handler constructs; keep nested Robinhood API passthrough data loose (`z.looseObject({})` / `z.unknown()`) so upstream field drift can't turn into a runtime validation failure — never use a bare `z.record()` as a top-level output schema (the installed SDK silently drops it)
+6. Wrap the handler body in try/catch, return `structured({ ... })` on success, `textError(String(e))` on failure
+7. If a new file, import and call its `register*Tools(server)` in `server.ts`
+8. Add tests in `__tests__/server/tools.test.ts`; if the tool's output schema is nontrivial, also exercise it in `__tests__/server/tools-realsdk.test.ts` (runs tools through the real MCP SDK over an in-memory transport — the mocked tests can't catch SDK-level schema issues)
 
 Example:
 
 ```typescript
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getAuthenticatedRh, text } from "./_helpers.js";
+import { getAuthenticatedRh, structured, textError } from "./_helpers.js";
+
+const READ_ONLY = { readOnlyHint: true } as const;
 
 export function registerNewTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "robinhood_new_tool",
-    "Tool description shown to agents.",
     {
-      param: z.string().describe("Parameter description."),
+      title: "New Tool",
+      description: "Tool description shown to agents.",
+      inputSchema: {
+        param: z.string().describe("Parameter description."),
+      },
+      outputSchema: {
+        data: z.unknown().describe("Result of someMethod (API passthrough)."),
+      },
+      annotations: READ_ONLY,
     },
     async ({ param }) => {
       try {
         const rh = await getAuthenticatedRh();
         const result = await rh.someMethod(param);
-        return text({ data: result });
+        return structured({ data: result });
       } catch (e) {
-        return text({ error: String(e) });
+        return textError(String(e));
       }
     },
   );

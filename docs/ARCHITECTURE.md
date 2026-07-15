@@ -55,7 +55,7 @@
 ```
 src/client/                    <- robinhood-for-agents client library
 ├── index.ts                   <- Exports: RobinhoodClient, getClient(), login()
-├── client.ts                  <- RobinhoodClient class (~50 async methods)
+├── client.ts                  <- RobinhoodClient class (76 async methods)
 ├── auth.ts                    <- Direct auth: TokenStore load, Bearer injection, 401 refresh
 ├── token-store.ts             <- TokenStore interface + KeychainTokenStore + EncryptedFileTokenStore
 ├── session.ts                 <- fetch wrapper (Bearer injection, 401 retry, redirect safety)
