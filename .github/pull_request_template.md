@@ -7,7 +7,7 @@ Brief description of the changes.
 - [ ] Does not expose fund transfer or bank operations
 - [ ] Does not enable bulk operations without safeguards
 - [ ] Order-related changes require explicit parameters (no dangerous defaults)
-- [ ] ACCESS_CONTROLS.md updated if adding new operations
+- [ ] `docs/ACCESS_CONTROLS.md` updated if adding new operations
 
 ## Testing
 

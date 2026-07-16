@@ -98,11 +98,13 @@ Open tax lots for one equity holding (one symbol per call). A real endpoint pass
 ## Crypto
 
 ### robinhood_get_crypto
-Get crypto positions or a quote.
+Get a crypto quote, price history, or positions.
 
 **Parameters:**
-- `info_type` (enum: "positions", "quote", default: "positions")
-- `symbol` (string, required when `info_type: "quote"`)
+- `info_type` (enum: "quote", "historicals", "positions", default: "quote")
+- `symbol` (string, required for "quote" and "historicals", e.g. "BTC")
+- `interval` (enum: "15second", "5minute", "10minute", "hour", "day", "week", default: "day") — for historicals
+- `span` (enum: "hour", "day", "week", "month", "3month", "year", "5year", default: "month") — for historicals
 
 ## Research
 
@@ -180,7 +182,7 @@ Historical and upcoming earnings for one symbol (EPS estimate vs. actual, report
 Market-wide earnings calendar for a window of days (all reporting companies, not one symbol).
 
 **Parameters:**
-- `range_days` (number, default: 7) — positive = upcoming (e.g. 7 = next 7 days), negative = look-back
+- `range_days` (number, default: 7) — positive = upcoming (e.g. 7 = next 7 days), negative = look-back; must be non-zero
 
 **Response:** `{ "range_days": 7, "count": 79, "calendar": [{ "symbol": "...", "year": 2026, "quarter": 2, "eps": {...}, "report": {...} }] }`
 
@@ -343,7 +345,8 @@ Pre-trade simulation for single/multi-leg option orders — places **nothing**. 
 Get top movers by category.
 
 **Parameters:**
-- `direction` (enum: "up", "down", optional)
+- `category` (enum: "top_movers", "sp500", "top_100", default: "top_movers")
+- `direction` (enum: "up", "down") — required when `category: "sp500"`, ignored otherwise
 
 ### robinhood_get_indexes
 Get all tradable market indexes (SPX, NDX, VIX, RUT, XSP, …).

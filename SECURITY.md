@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | Yes       |
+| 1.x     | Yes       |
+| < 1.0   | No        |
 
 ## Reporting a Vulnerability
 
@@ -23,7 +24,7 @@ You will receive an acknowledgment within 48 hours and a detailed response withi
 
 **In scope:**
 - Token or credential leakage
-- Encryption weaknesses in token storage (`~/.robinhood-for-agents/tokens.enc`)
+- Weaknesses in token storage — OS keychain handling (`KeychainTokenStore`) or file encryption (`EncryptedFileTokenStore`)
 - Unauthorized order execution or account access
 - Bypassing safety controls (blocked operations, parameter validation)
 
@@ -36,10 +37,10 @@ You will receive an acknowledgment within 48 hours and a detailed response withi
 
 This project follows a defense-in-depth approach:
 
-- Sessions encrypted with AES-256-GCM, key stored in OS keychain
+- Tokens stored in the OS keychain via `Bun.secrets` (default), or in an AES-256-GCM encrypted file for Docker/headless deployments — never in plaintext on disk
 - Fund transfers and bank operations are permanently blocked
 - Bulk cancel operations are blocked
 - All order placements require explicit parameters with no dangerous defaults
-- Sessions expire after ~24 hours
+- Access tokens expire after ~8.5 days and auto-refresh via the stored refresh token
 
-See [docs/ACCESS_CONTROLS.md](docs/ACCESS_CONTROLS.md) for the full risk model.
+See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model and [docs/ACCESS_CONTROLS.md](docs/ACCESS_CONTROLS.md) for the risk tiers.

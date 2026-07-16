@@ -1,6 +1,6 @@
 {
   "name": "robinhood-for-agents",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "AI-native Robinhood trading interface — MCP server + TypeScript client",
   "license": "MIT",
@@ -42,7 +42,7 @@
       "default": "./dist/src/client/index.js"
     }
   },
-  "files": ["dist", "skills"],
+  "files": ["dist", "skills", "docs"],
   "dependencies": {
     "@clack/prompts": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.12.0",

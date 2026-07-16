@@ -47,25 +47,24 @@ export function registerNewTools(server: McpServer): void {
 }
 ```
 
-## Creating a New Skill
+## Extending the Skill
 
-1. Create `skills/robinhood-<name>/SKILL.md` with:
-   - YAML frontmatter (`name`, `description`)
-   - Trigger phrases
-   - Step-by-step instructions for Claude
-   - Code patterns to follow
-2. Create `skills/robinhood-<name>/reference.md` with API details
-3. Keep SKILL.md under 500 lines
+There is a single unified skill, `skills/robinhood-for-agents/`, with three-layer progressive disclosure (`SKILL.md` router → domain files → `reference.md`/`client-api.md`). To cover a new domain:
+
+1. Add a domain file (e.g. `skills/robinhood-for-agents/<domain>.md`) with step-by-step workflow instructions and code patterns
+2. Add a routing row for it in `SKILL.md`'s Routing table (intent, file, example triggers)
+3. Document any new MCP tool parameters in `reference.md` and new client methods in `client-api.md`
+4. Keep `SKILL.md` compact — it is loaded on every trigger; details belong in the domain files
 
 ## Adding Client Methods
 
-1. Define a Zod schema in `src/client/types.ts` (use `.passthrough()`)
+1. Define a Zod schema in `src/client/types.ts` — keep it tolerant of extra fields (`z.looseObject({...})` or `.catchall(z.unknown())`) so upstream field drift can't break parsing
 2. Add a URL builder in `src/client/urls.ts` if needed
 3. Implement the method in `src/client/client.ts`:
    - Use `parseOne(Schema, data)` or `parseArray(Schema, data)` for return values
    - Use typed return signatures (e.g. `Promise<Quote[]>`, not `Promise<unknown[]>`)
 4. Export the new type from `src/client/index.ts`
-5. Add tests in `__tests__/client/` using `vi.mock("../src/http.js")`
+5. Add tests in `__tests__/client/` using `vi.mock("../../src/client/http.js")`
 
 ## Testing
 
@@ -79,8 +78,8 @@ All tests mock the HTTP layer via `vi.mock()` — no real API calls. Use `vitest
 When mocking `http.js`, use `importOriginal` to preserve `parseOne`/`parseArray`:
 
 ```typescript
-vi.mock("../src/http.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/http.js")>();
+vi.mock("../../src/client/http.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/client/http.js")>();
   return {
     ...actual,
     requestGet: vi.fn(),

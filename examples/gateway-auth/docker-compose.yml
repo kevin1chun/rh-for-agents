@@ -1,10 +1,15 @@
-# Run robinhood-for-agents behind the auth gateway.
+# Run the auth gateway in front of an MCP server.
 # Agents connect to the gateway (port 3001) only.
-# The MCP server is internal — not exposed to the host.
+#
+# The gateway forwards MCP JSON-RPC over HTTP to MCP_UPSTREAM. Note that the
+# robinhood-for-agents MCP server itself is stdio-only, so the `mcp` service
+# below is a placeholder: supply your own image that exposes the MCP server
+# over HTTP on :3000 (e.g. the stdio server behind a stdio<->HTTP MCP bridge).
 
 services:
   mcp:
-    build: ../..
+    # Placeholder — replace with your MCP-over-HTTP image (see note above).
+    image: your-mcp-http-image
     expose:
       - "3000"
     environment:

@@ -4,7 +4,7 @@
 
 ### Morning Portfolio Check
 **User**: "How's my portfolio doing?"
-**Claude**: Writes script calling `build_holdings()`, computes daily P&L, formats table.
+**Claude**: Writes script calling `buildHoldings()`, computes daily P&L, formats table.
 **Output**: "Portfolio: $45,230 (+1.2% today). Top gainer: NVDA +3.4%. Top loser: META -1.1%."
 
 ### Stock Research Before Buying
@@ -17,7 +17,7 @@
 
 ### Dividend Income Tracking
 **User**: "Show me my dividend history"
-**Claude**: Writes script calling `get_dividends()`, groups by instrument, calculates totals by quarter.
+**Claude**: Writes script calling `buildHoldings({ withDividends: true })`, groups dividends by instrument, calculates totals by quarter.
 
 ### Order Management
 **User**: "Cancel my open TSLA order"
@@ -47,19 +47,3 @@
 1. Agent calls `robinhood_get_portfolio()` daily
 2. Stores snapshots for historical tracking
 3. Generates performance reports with trends
-
-## End-to-End with Taji
-
-### Onboarding
-1. Agent calls `robinhood_get_portfolio()` + `robinhood_get_orders()` via MCP
-2. Agent transforms data to Taji schema (strip PII, normalize positions)
-3. Agent runs `taji onboarding submit --positions '[...]' --demographics '{...}' --message '...'`
-4. Agent relays Taji's Q&A questions to human, runs `taji onboarding answer "..."`
-
-### Trade Execution (Taji-coordinated)
-1. `taji ask "Should I buy NVDA?"` → gets trade proposal with `trade_intent_id`
-2. `taji trade approve <id>` → human-approved
-3. `taji trade validate <id> --params '{...}' --artifact '{...}'` → Taji verifies params match proposal
-4. `robinhood_place_stock_order` (MCP) → executes on brokerage
-5. `robinhood_get_order_status` (MCP) → monitors fill
-6. `taji trade fill <id> --fill '{...}' --artifact '{...}'` → reports fill to Taji, portfolio updated

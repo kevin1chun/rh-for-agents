@@ -18,8 +18,7 @@
  * against a second live capture at author time. This is a STATIC catalog, not a
  * live REST read — Robinhood may add or remove filters over time. To refresh:
  * re-call the official tool, diff, and regenerate. See the scanner drift-guard
- * unit test (__tests__/client/scanner-filter-specs.test.ts) and
- * docs/official-mcp-parity.md.
+ * unit test (__tests__/client/scanner-filter-specs.test.ts).
  *
  * GENERATED — do not hand-edit individual entries; regenerate from a fresh
  * official capture to keep the catalog authoritative.

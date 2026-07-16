@@ -24,8 +24,16 @@ Auth Gateway (:3001)
   - log decision (structured console output)
   |
   v
-robinhood-for-agents (:3000, internal only)
+MCP server over HTTP (:3000, internal only)
 ```
+
+> [!NOTE]
+> The gateway forwards MCP JSON-RPC over **HTTP** to `MCP_UPSTREAM`. The
+> robinhood-for-agents MCP server itself speaks **stdio**, not HTTP — to place
+> it behind this gateway, run it behind a stdio↔HTTP MCP bridge (or point
+> `MCP_UPSTREAM` at any MCP server that accepts JSON-RPC over HTTP POST).
+> The gateway's auth logic is independent of the upstream and is what this
+> example demonstrates.
 
 ## Tool Permission Tiers
 
@@ -49,23 +57,25 @@ All source lives in [`examples/gateway-auth/`](../examples/gateway-auth/):
 - `gateway.ts` — Auth logic with pluggable `AgentVerifier` interface
 - `config.ts` — Tool-permission mapping and configuration
 - `gateway.test.ts` — Unit tests
-- `docker-compose.yml` — Run both services together
+- `docker-compose.yml` — Gateway + a placeholder upstream service (supply your own MCP-over-HTTP image)
 - `Dockerfile` — Gateway container image
 
 ## Quick Start
 
 ```bash
-# Without Docker
+# Without Docker — starts the gateway only; point MCP_UPSTREAM at your
+# HTTP-reachable MCP server (default: http://localhost:3000)
 cd examples/gateway-auth
 bun install
 bun run server.ts
 
-# With Docker
+# With Docker — first replace the placeholder `mcp` image in
+# docker-compose.yml with your MCP-over-HTTP image (see note above)
 cd examples/gateway-auth
 docker compose up
 ```
 
-Agents connect to the gateway on port 3001. The MCP server (port 3000) is internal only and not exposed to the host.
+Agents connect to the gateway on port 3001. The upstream MCP server (port 3000) is internal only and not exposed to the host.
 
 ## Configuration
 

@@ -29,7 +29,7 @@ The SDK auto-detects the environment: if `ROBINHOOD_TOKENS_FILE` is set, it uses
 npx robinhood-for-agents onboard
 ```
 
-Select "Docker / remote" when prompted. The onboard flow will:
+Select "Docker container / remote host" when prompted. The onboard flow will:
 1. Open Chrome for Robinhood login (captures OAuth tokens)
 2. Encrypt tokens to a file using AES-256-GCM
 3. Print the encryption key and env var commands to copy into your container config

@@ -2,17 +2,19 @@
 
 ## Risk Levels
 
+The **Skill** column references domain files of the unified `robinhood-for-agents` skill (e.g. `portfolio.md`, `trade.md` under `skills/robinhood-for-agents/`).
+
 ### Low Risk (Read Operations)
 All data retrieval operations. No financial impact.
 
 | Operation | MCP Tool | Skill |
 |-----------|----------|-------|
-| Portfolio/Holdings | `robinhood_get_portfolio` | `robinhood-portfolio` |
+| Portfolio/Holdings | `robinhood_get_portfolio` | `portfolio.md` |
 | Account/Profile | `robinhood_get_account` | - |
-| Stock Quotes/Data | `robinhood_get_stock_quote` | `robinhood-research` |
-| Historical Data | `robinhood_get_historicals` | `robinhood-research` |
-| News/Ratings | `robinhood_get_news` | `robinhood-research` |
-| Options Data | `robinhood_get_options` | `robinhood-options` |
+| Stock Quotes/Data | `robinhood_get_stock_quote` | `research.md` |
+| Historical Data | `robinhood_get_historicals` | `research.md` |
+| News/Ratings | `robinhood_get_news` | `research.md` |
+| Options Data | `robinhood_get_options` | `options.md` |
 | Crypto Data | `robinhood_get_crypto` | - |
 | Market Movers | `robinhood_get_movers` | - |
 | Search | `robinhood_search` | - |
@@ -24,15 +26,15 @@ All data retrieval operations. No financial impact.
 | Scanners (read) | `robinhood_get_scans`, `robinhood_get_scanner_filter_specs` | via skill |
 | Realized P&L (read, computed) | `robinhood_get_realized_pnl`, `robinhood_get_pnl_trade_history` | via skill |
 | Tax Lots (read) | `robinhood_get_equity_tax_lots` | via skill |
-| Order Review (read, simulation) | `robinhood_review_equity_order`, `robinhood_review_option_order` | `robinhood-trade` |
+| Order Review (read, simulation) | `robinhood_review_equity_order`, `robinhood_review_option_order` | `trade.md` |
 
 ### Medium Risk
 Operations with limited financial impact or credential exposure. Includes **reversible, non-financial writes** (watchlist mutations): confirm-before-calling, single-target/single-operation, no order surface.
 
 | Operation | MCP Tool | Skill |
 |-----------|----------|-------|
-| Authentication | `robinhood_browser_login` | `robinhood-setup` |
-| Cancel Single Order | `robinhood_cancel_order` | `robinhood-trade` |
+| Authentication | `robinhood_browser_login` | `setup.md` |
+| Cancel Single Order | `robinhood_cancel_order` | `trade.md` |
 | Watchlist Add/Remove | `robinhood_add_to_watchlist`, `robinhood_remove_from_watchlist` | via skill |
 | Watchlist Create/Update | `robinhood_create_watchlist`, `robinhood_update_watchlist` | via skill |
 | Watchlist Follow/Unfollow | `robinhood_follow_watchlist`, `robinhood_unfollow_watchlist` | via skill |
@@ -43,9 +45,9 @@ Order placement. Requires explicit parameters — no dangerous defaults.
 
 | Operation | MCP Tool | Skill |
 |-----------|----------|-------|
-| Stock Orders | `robinhood_place_stock_order` | `robinhood-trade` |
-| Option Orders | `robinhood_place_option_order` | `robinhood-trade` |
-| Crypto Orders | `robinhood_place_crypto_order` | `robinhood-trade` |
+| Stock Orders | `robinhood_place_stock_order` | `trade.md` |
+| Option Orders | `robinhood_place_option_order` | `trade.md` |
+| Crypto Orders | `robinhood_place_crypto_order` | `trade.md` |
 
 ### Blocked (Critical Risk)
 These operations are **never exposed** through MCP tools or skills.

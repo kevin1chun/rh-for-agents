@@ -9,7 +9,7 @@ install:
     bins: [robinhood-for-agents]
 requires:
   bins: [bun]
-metadata: {"credentials":"OAuth tokens stored via TokenStore adapters: KeychainTokenStore (OS keychain, default) or EncryptedFileTokenStore (for Docker/headless). restoreSession() loads tokens and injects Bearer auth directly. Access tokens last ~8.5 days and auto-refresh on 401 via the stored refresh token, so the user stays logged in for roughly a week+ before a browser re-login is needed.","chrome":"A Chromium-based browser (Chrome, Brave, or Chromium — auto-detected on macOS, override with BROWSER_PATH) is required only for initial login (bunx robinhood-for-agents onboard). Not needed for subsequent API calls."}
+metadata: {"credentials":"OAuth tokens stored via TokenStore adapters: KeychainTokenStore (OS keychain, default) or EncryptedFileTokenStore (for Docker/headless). restoreSession() loads tokens and injects Bearer auth directly. Access tokens last ~8.5 days and auto-refresh on 401 via the stored refresh token, so the user stays logged in for roughly a week+ before a browser re-login is needed.","chrome":"Google Chrome is required only for initial login (bunx robinhood-for-agents onboard) — playwright-core drives the system Chrome; there is no Brave/Chromium fallback or BROWSER_PATH override. Not needed for subsequent API calls."}
 ---
 
 # robinhood-for-agents

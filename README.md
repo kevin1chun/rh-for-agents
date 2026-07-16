@@ -16,7 +16,7 @@ Compatible with **Claude Code**, **Codex**, **OpenClaw**, and any MCP-compatible
 
 ## Prerequisites
 
-- [Bun](https://bun.sh/) v1.0+
+- [Bun](https://bun.sh/) v1.3+
 - Google Chrome for login (driven by `playwright-core` via `channel: "chrome"`, no bundled browser). Chrome must be installed — there's no Brave/Chromium fallback or `BROWSER_PATH` override yet.
 - A Robinhood account
 
@@ -34,9 +34,9 @@ The interactive setup detects your agent, registers the MCP server, installs ski
 You can also specify your agent directly:
 
 ```bash
-robinhood-for-agents onboard --agent claude-code
-robinhood-for-agents onboard --agent codex
-robinhood-for-agents onboard --agent openclaw
+npx robinhood-for-agents onboard --agent claude-code
+npx robinhood-for-agents onboard --agent codex
+npx robinhood-for-agents onboard --agent openclaw
 ```
 
 ### From source
@@ -55,12 +55,14 @@ bun run onboard
 
 ```bash
 # Register MCP server (global — available in all projects)
-claude mcp add -s user robinhood-for-agents -- bun run /path/to/bin/robinhood-for-agents.ts
+claude mcp add -s user robinhood-for-agents -- bunx robinhood-for-agents
 
 # Install skills (per-project, optional)
 cd your-project
-robinhood-for-agents install --skills
+npx robinhood-for-agents install --skills
 ```
+
+From a source checkout, register the server as `claude mcp add -s user robinhood-for-agents -- bun run /path/to/checkout/bin/robinhood-for-agents.ts` instead.
 
 Restart Claude Code to pick up the changes. Claude Code supports the unified trading skill in addition to the 49 MCP tools — see [Skill](#skill).
 </details>
@@ -69,8 +71,10 @@ Restart Claude Code to pick up the changes. Claude Code supports the unified tra
 <summary>Codex</summary>
 
 ```bash
-codex mcp add robinhood-for-agents -- bun run /path/to/bin/robinhood-for-agents.ts
+codex mcp add robinhood-for-agents -- bunx robinhood-for-agents
 ```
+
+From a source checkout, use `-- bun run /path/to/checkout/bin/robinhood-for-agents.ts` instead.
 
 Restart Codex to pick up the changes. Codex uses all 49 MCP tools directly.
 </details>
@@ -101,12 +105,14 @@ Add to your MCP client's config (e.g. `~/Library/Application Support/Claude/clau
 {
   "mcpServers": {
     "robinhood-for-agents": {
-      "command": "bun",
-      "args": ["run", "/absolute/path/to/robinhood-for-agents/bin/robinhood-for-agents.ts"]
+      "command": "bunx",
+      "args": ["robinhood-for-agents"]
     }
   }
 }
 ```
+
+From a source checkout, use `"command": "bun", "args": ["run", "/absolute/path/to/checkout/bin/robinhood-for-agents.ts"]` instead.
 </details>
 
 ## Example
@@ -316,7 +322,7 @@ Integration tests hit the real Robinhood API (read-only). Use them to confirm yo
 
 ```bash
 # 1. Login (opens Chrome — one-time)
-robinhood-for-agents onboard
+npx robinhood-for-agents onboard
 
 # 2. Run integration tests
 bun run test:integration

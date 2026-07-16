@@ -23,8 +23,14 @@ All methods are `async`. Multi-account is first-class: account-scoped methods ac
 | `robinhood_get_portfolio` | `buildHoldings(opts?)` |
 | `robinhood_get_crypto` (positions) | `getCryptoPositions()` |
 | `robinhood_get_crypto` (quote) | `getCryptoQuote(symbol)` |
+| `robinhood_get_crypto` (historicals) | `getCryptoHistoricals(symbol, opts?)` |
+| `robinhood_get_equity_positions` | `getPositions(opts?)` |
 | `robinhood_get_stock_quote` | `getQuotes(symbols)` + `getFundamentals(symbols)` |
 | `robinhood_get_fundamentals` | `getFundamentals(symbols)` |
+| `robinhood_get_equity_price_book` | `getPriceBook(symbol)` |
+| `robinhood_get_equity_tradability` | `getTradability(symbols)` |
+| `robinhood_get_earnings_results` | `getEarnings(symbol)` |
+| `robinhood_get_earnings_calendar` | `getEarningsCalendar(rangeDays?)` |
 | `robinhood_get_short_interest` | `getShortInterest(symbol, opts?)` |
 | `robinhood_get_news` | `getNews(symbol)` + `getRatings(symbol)` + `getEarnings(symbol)` |
 | `robinhood_get_historicals` | `getStockHistoricals(symbols, opts?)` |
@@ -33,6 +39,12 @@ All methods are `async`. Multi-account is first-class: account-scoped methods ac
 | `robinhood_get_options` (instruments) | `findTradableOptions(symbol, opts?)` |
 | `robinhood_get_options` (greeks) | `getOptionMarketData(symbol, expDate, strike, type)` |
 | `robinhood_get_options` (index value) | `getIndexValue(symbol)` |
+| `robinhood_get_option_positions` | `getOptionPositions(opts?)` / `getOptionAggregatePositions(opts?)` |
+| `robinhood_get_option_orders` | `getAllOptionOrders(opts?)` / `getOpenOptionOrders(opts?)` |
+| `robinhood_get_option_historicals` | `getOptionHistoricals(symbol, expDate, strike, type, opts?)` |
+| `robinhood_get_movers` | `getTopMovers()` / `getTopMoversSp500(direction)` / `getTop100()` |
+| `robinhood_get_indexes` | `getIndexInstruments()` |
+| `robinhood_get_index_quotes` | `getIndexQuotes(symbols)` |
 | `robinhood_review_equity_order` | `reviewEquityOrder(opts)` |
 | `robinhood_review_option_order` | `reviewOptionOrder(opts)` |
 | `robinhood_place_stock_order` | `orderStock(symbol, side, quantity, opts?)` |
@@ -54,6 +66,7 @@ All methods are `async`. Multi-account is first-class: account-scoped methods ac
 | `robinhood_follow_watchlist` | `followWatchlist(listId)` |
 | `robinhood_unfollow_watchlist` | `unfollowWatchlist(listId)` |
 | `robinhood_add_option_to_watchlist` | `getOptionInstrumentById(optionId)` + `quickAddOption(optionId, "long")` |
+| `robinhood_remove_option_from_watchlist` | `getOptionWatchlistContracts()` + `updateWatchlistItems(listId, "delete", refs)` |
 | `robinhood_get_scans` | `getScans()` |
 | `robinhood_get_scanner_filter_specs` | `getScannerFilterSpecs()` |
 | `robinhood_get_realized_pnl` / `robinhood_get_pnl_trade_history` | `getRealizedPnl(opts?)` |
@@ -246,7 +259,7 @@ await rh.orderCrypto("BTC", "buy", 0.5);                           // buy 0.5 BT
 await rh.orderCrypto("BTC", "buy", 100, { amountIn: "price" });    // buy $100 of BTC
 await rh.orderCrypto("BTC", "buy", 0.5, { limitPrice: 60000 });    // limit buy
 ```
-Options: `{ amountIn?: "quantity" | "price"; limitPrice?: number; timeInForce?: string }`
+Options: `{ amountIn?: "quantity" | "price"; orderType?: "market" | "limit"; limitPrice?: number }` — setting `limitPrice` implies a limit order.
 
 ### Order Queries
 ```typescript
@@ -315,7 +328,7 @@ if (hit?.object_id) {
   ]);
 }
 ```
-`object_type` is `"instrument"` (stocks/ETFs), `"index"`, or `"currency_pair"`. For indexes/crypto the `object_id` is the UUID directly (from `getIndexInstruments()` / `getCurrencyPairs()`).
+`object_type` is `"instrument"` (stocks/ETFs), `"index"`, or `"currency_pair"` for adds; reads may also surface `"option_strategy"` (options-watchlist entries), `"futures"`, and `"tokenized_stock"`. For indexes/crypto the `object_id` is the UUID directly (from `getIndexInstruments()` / `getCurrencyPairs()`).
 
 ### List metadata writes — create / update / delete
 ```typescript

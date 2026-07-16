@@ -32,6 +32,8 @@
 │                      ▼                                          │
 │            api.robinhood.com                                    │
 │            nummus.robinhood.com (crypto)                        │
+│            bonfire.robinhood.com (portfolio, earnings, lists)   │
+│            dora.robinhood.com (research)                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,7 +46,7 @@
 | **Bun** | Native TS execution, fast startup, built-in fetch |
 | **ESM-only** | Bun is ESM-native, no CJS needed |
 | **@modelcontextprotocol/sdk** | Official MCP SDK, StdioServerTransport for agent compatibility |
-| **Zod v3.24** | Types API response shapes (client casts, not runtime-parsed) + runtime-validates MCP tool parameters |
+| **Zod v4** | Types API response shapes (client casts, not runtime-parsed) + runtime-validates MCP tool parameters |
 | **Vitest** | Fast TS-native testing, correct module isolation via `vi.mock()` |
 | **Biome v2** | All-in-one lint + format, 10-25x faster than ESLint |
 | **Bun.secrets** | OS keychain access (macOS Keychain Services, Linux libsecret) |
@@ -60,10 +62,14 @@ src/client/                    <- robinhood-for-agents client library
 ├── token-store.ts             <- TokenStore interface + KeychainTokenStore + EncryptedFileTokenStore
 ├── session.ts                 <- fetch wrapper (Bearer injection, 401 retry, redirect safety)
 ├── http.ts                    <- GET/POST/DELETE with pagination + trusted-origin validation
-├── urls.ts                    <- Const URL builders (API_BASE, NUMMUS_BASE)
+├── urls.ts                    <- Const URL builders (API_BASE, NUMMUS_BASE, BONFIRE_BASE, DORA_BASE)
 ├── errors.ts                  <- Exception hierarchy
 ├── types.ts                   <- Zod schemas + inferred types
 └── branded.ts                 <- AccountNumber, OrderId, etc. branded types
+
+src/compute/                   <- Pure derived-data modules (no HTTP)
+├── realized-pnl.ts            <- FIFO realized P&L + bucketing
+└── order-review.ts            <- Price-collar simulation for order review
 
 src/server/                    <- robinhood-for-agents MCP server
 ├── index.ts                   <- main() export, StdioServerTransport
@@ -73,16 +79,27 @@ src/server/                    <- robinhood-for-agents MCP server
 │   ├── onboard.ts            <- Interactive setup TUI (also handles Docker token export)
 │   ├── install-mcp.ts        <- Install MCP server config
 │   ├── install-skills.ts     <- Install Claude Code skills
+│   ├── install-workspace-dep.ts <- Install npm dep into agent workspaces (OpenClaw)
 │   ├── detect.ts             <- Agent detection
+│   ├── paths.ts              <- Package/bin path resolution
 │   └── agents/               <- Agent-specific config generators
-└── tools/
-    ├── auth.ts               <- robinhood_browser_login, robinhood_check_session
-    ├── portfolio.ts          <- robinhood_get_portfolio, _get_accounts, _get_account
-    ├── stocks.ts             <- robinhood_get_stock_quote, _get_historicals, _get_news, _search
-    ├── options.ts            <- robinhood_get_options
-    ├── crypto.ts             <- robinhood_get_crypto
-    ├── orders.ts             <- robinhood_place_stock_order, _option, _crypto, _cancel, _get_orders
-    └── markets.ts            <- robinhood_get_movers
+└── tools/                     <- 49 MCP tools across 12 modules
+    ├── auth.ts               <- browser_login, check_session
+    ├── portfolio.ts          <- get_portfolio, get_equity_positions, get_accounts, get_account
+    ├── stocks.ts             <- get_stock_quote, get_historicals, get_fundamentals, get_short_interest,
+    │                            get_news, search, get_equity_price_book, get_earnings_results,
+    │                            get_earnings_calendar, get_equity_tradability
+    ├── options.ts            <- get_options, get_option_positions, get_option_orders, get_option_historicals
+    ├── crypto.ts             <- get_crypto
+    ├── orders.ts             <- place_stock_order, place_option_order, place_crypto_order,
+    │                            get_orders, cancel_order, get_order_status
+    ├── markets.ts            <- get_movers, get_indexes, get_index_quotes
+    ├── watchlists.ts         <- get/create/update watchlists, add/remove items,
+    │                            follow/unfollow, options-watchlist read + add/remove
+    ├── scanners.ts           <- get_scans, get_scanner_filter_specs
+    ├── pnl.ts                <- get_realized_pnl, get_pnl_trade_history
+    ├── review.ts             <- review_equity_order, review_option_order
+    └── tax-lots.ts           <- get_equity_tax_lots
 ```
 
 ## Authentication
@@ -315,51 +332,26 @@ Every account-scoped method accepts `accountNumber?: string`:
 - `buildHoldings({ accountNumber })` -- P&L for specific account
 - Omitted -> default account
 
-## MCP Tools (18 total)
+## MCP Tools (49 total)
 
-```
-┌──────────────────────────────────────────────────────┐
-│  MCP Tool                    Client Methods Wrapped  │
-├──────────────────────────────────────────────────────┤
-│  robinhood_browser_login     (Playwright browser)    │
-│  robinhood_check_session     restoreSession()        │
-│  robinhood_get_portfolio     buildHoldings()         │
-│                              getAccountProfile()     │
-│                              getPortfolioProfile()   │
-│  robinhood_get_accounts      getAccounts()           │
-│  robinhood_get_account       getAccountProfile()     │
-│                              getUserProfile()        │
-│                              getInvestmentProfile()  │
-│  robinhood_get_stock_quote   getQuotes()             │
-│                              getFundamentals()       │
-│  robinhood_get_historicals   getStockHistoricals()   │
-│  robinhood_get_news          getNews()               │
-│  robinhood_search            findInstruments()       │
-│  robinhood_get_options       getChains()             │
-│                              findTradableOptions()   │
-│                              getOptionMarketData()   │
-│  robinhood_get_crypto        getCryptoQuote()        │
-│                              getCryptoHistoricals()  │
-│                              getCryptoPositions()    │
-│  robinhood_get_orders        getAllStockOrders()      │
-│                              getOpenStockOrders()    │
-│                              (+ option, crypto)      │
-│  robinhood_place_stock_order orderStock()            │
-│  robinhood_place_option_order orderOption()          │
-│  robinhood_place_crypto_order orderCrypto()          │
-│  robinhood_cancel_order      cancelStockOrder()      │
-│                              cancelOptionOrder()     │
-│                              cancelCryptoOrder()     │
-│  robinhood_get_order_status  getStockOrder()         │
-│                              getOptionOrder()        │
-│                              getCryptoOrder()        │
-│  robinhood_get_movers        getTopMovers()          │
-│                              getTopMoversSp500()     │
-│                              getTop100()             │
-└──────────────────────────────────────────────────────┘
-```
+Each tool accesses the client via the `getClient()` singleton. Tools are registered by module in `src/server/tools/`:
 
-Each tool accesses the client via `getClient()` singleton.
+| Module | Tools (all `robinhood_`-prefixed) |
+|---|---|
+| `auth.ts` (2) | `browser_login`, `check_session` |
+| `portfolio.ts` (4) | `get_portfolio`, `get_equity_positions`, `get_accounts`, `get_account` |
+| `stocks.ts` (10) | `get_stock_quote`, `get_historicals`, `get_fundamentals`, `get_short_interest`, `get_news`, `search`, `get_equity_price_book`, `get_earnings_results`, `get_earnings_calendar`, `get_equity_tradability` |
+| `options.ts` (4) | `get_options`, `get_option_positions`, `get_option_orders`, `get_option_historicals` |
+| `crypto.ts` (1) | `get_crypto` |
+| `orders.ts` (6) | `place_stock_order`, `place_option_order`, `place_crypto_order`, `get_orders`, `cancel_order`, `get_order_status` |
+| `markets.ts` (3) | `get_movers`, `get_indexes`, `get_index_quotes` |
+| `watchlists.ts` (12) | `get_watchlists`, `get_watchlist_items`, `get_popular_watchlists`, `get_option_watchlist`, `create_watchlist`, `update_watchlist`, `add_to_watchlist`, `remove_from_watchlist`, `follow_watchlist`, `unfollow_watchlist`, `add_option_to_watchlist`, `remove_option_from_watchlist` |
+| `scanners.ts` (2) | `get_scans`, `get_scanner_filter_specs` |
+| `pnl.ts` (2) | `get_realized_pnl`, `get_pnl_trade_history` |
+| `review.ts` (2) | `review_equity_order`, `review_option_order` |
+| `tax-lots.ts` (1) | `get_equity_tax_lots` |
+
+The [README](../README.md#mcp-tools-49) describes each tool; [`skills/robinhood-for-agents/reference.md`](../skills/robinhood-for-agents/reference.md) documents parameters and response shapes; [`skills/robinhood-for-agents/client-api.md`](../skills/robinhood-for-agents/client-api.md) maps each tool to the client methods it wraps.
 
 ## Order Placement
 
@@ -405,7 +397,7 @@ Stock order payloads include `order_form_version: 7` (required by the Robinhood 
 | **TokenStore adapters** | Pluggable token storage. KeychainTokenStore for desktop, EncryptedFileTokenStore for Docker/headless. Client never hard-codes a storage strategy. |
 | **Direct Bearer auth** | Session injects `Authorization: Bearer` directly on every request. No proxy, no URL rewriting, no shared secret. Simpler, fewer moving parts. |
 | **401 retry in session** | `onUnauthorized` callback refreshes the token and retries once. Concurrent 401s coalesce into a single refresh. |
-| **Const URL builders** | `API_BASE` and `NUMMUS_BASE` are `const` -- no mutable state, no `configureProxy()`. All URLs point to Robinhood directly. |
+| **Const URL builders** | `API_BASE`, `NUMMUS_BASE`, `BONFIRE_BASE`, and `DORA_BASE` are `const` -- no mutable state, no `configureProxy()`. All URLs point to Robinhood directly. |
 | **Bun + native fetch** | Zero deps for HTTP, native TS execution, fast startup |
 | **Class-based over module globals** | Instance-scoped session prevents shared mutable state. Testable. |
 | **Bun.secrets for keychain** | Tokens stored directly in OS keychain -- no files on disk, no custom encryption layer. Zero deps. |

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-07-16
+
+### Fixed
+
+- **Documentation accuracy pass** — `docs/ARCHITECTURE.md` rebuilt around the shipped surface (49 tools, was stale at 18; Zod v4; all four API hosts; complete file map); root `SECURITY.md` corrected (supported versions, ~8.5-day token lifetime, keychain-default storage); `robinhood_get_crypto` and `robinhood_get_movers` parameter docs and the `orderCrypto` signature corrected in the skill, and the MCP↔client mapping table completed; `CONTRIBUTING.md` updated to Zod v4 idioms, real test-mock paths, and the unified-skill layout; stale per-domain skill names replaced in `ACCESS_CONTROLS.md`; `SKILL.md` no longer claims Brave/Chromium/`BROWSER_PATH` support (login is Chrome-only)
+- **Gateway auth example** — `docker-compose.yml` no longer builds a nonexistent root Dockerfile; the upstream `mcp` service is an explicit placeholder and `docs/GATEWAY-AUTH.md` now states the gateway needs an HTTP-reachable MCP upstream (the bundled MCP server is stdio-only)
+- **Changelog** — added the missing 0.7.0/0.7.1 entries (including the 0.7.0 removal of 0.6.2's multi-browser login) and compare links for 1.0.0/0.8.0/0.7.2; corrected the 1.0.0 note that misstated browser support
+- README manual setup now registers the npm package via `bunx robinhood-for-agents` (with from-source variants); Bun prerequisite corrected to v1.3+ to match `engines`
+
+### Changed
+
+- npm package now ships `docs/` so README links resolve in the installed tarball
+- LICENSE copyright year updated to 2025-2026
+
+### Removed
+
+- Internal planning documents (`docs/superpowers/`, `docs/official-mcp-parity.md`) and the external-tool walkthrough section of `docs/USE_CASES.md`
+
 ## [1.0.0] - 2026-07-16
 
 ### Added
@@ -18,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`robinhood_get_option_watchlist` now returns the contracts** on the options watchlist (each with its `object_id`, derived `option_id`, and `position_type`), rather than just the list metadata — matching the official Trading MCP tool. It reads with `load_all_attributes=false` (the options list rejects the server default). Multi-leg strategies are listed with a null `option_id` and directed to the app.
 - **MCP tool layer modernized** — all 49 tools migrated from the legacy `server.tool()` API to `registerTool` with human-readable `title`s, full annotation coverage (`readOnlyHint: true` on every read; explicit `destructiveHint`/`idempotentHint` on order placement, cancel, and login — previously only the Tier-2 write tools carried annotations), and structured output (`outputSchema` + `structuredContent`). Structured content passes through the same redaction as the text block (built by re-parsing the redacted JSON, so the two can never drift). Output schemas type only handler-constructed envelope keys and stay deliberately loose on API-passthrough data, so upstream schema drift can't become a runtime tool failure. New end-to-end tests run the tools through the real MCP SDK over an in-memory transport (which caught a `z.record()` top-level schema the SDK silently drops — replaced with `z.looseObject({})`).
 - **Overlapping tool descriptions disambiguated** — `robinhood_get_stock_quote` vs `robinhood_get_fundamentals` and `robinhood_get_orders` vs `robinhood_get_option_orders` now each state when to prefer the other.
-- **Skill + docs accuracy pass** — new client-first `watchlists.md` domain file (extracted from SKILL.md); SKILL.md slimmed by folding its method-inventory table into `client-api.md`, which also gained missing methods and dropped a documented-but-nonexistent `getOpenOptionPositions` (real methods: `getOptionPositions` / `getOptionAggregatePositions`); fixed stale "~24h token" and Google-Chrome-only claims across skill files (access tokens last ~8.5 days with auto-refresh; any Chromium-based browser works, login-only); skill `allowed-tools` now pre-approves the primary `bun` execution path; CLAUDE.md counts corrected (49 tools, 76 client methods).
+- **Skill + docs accuracy pass** — new client-first `watchlists.md` domain file (extracted from SKILL.md); SKILL.md slimmed by folding its method-inventory table into `client-api.md`, which also gained missing methods and dropped a documented-but-nonexistent `getOpenOptionPositions` (real methods: `getOptionPositions` / `getOptionAggregatePositions`); fixed the stale "~24h token" claim across skill files (access tokens last ~8.5 days with auto-refresh) and aligned browser-support docs with the shipped Chrome-only login (the 0.6.2 multi-browser auto-detection was removed in 0.7.0); skill `allowed-tools` now pre-approves the primary `bun` execution path; CLAUDE.md counts corrected (49 tools, 76 client methods).
 
 ## [0.8.0] - 2026-07-14
 
@@ -40,6 +58,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Updated skill docs (`client-api.md`, `research.md`, `options.md`, `reference.md`, `SKILL.md`) to surface the newly-typed fields from the schema accuracy pass; corrected a stale claim in `CLAUDE.md`/`docs/ARCHITECTURE.md` that Zod runtime-validates API responses — it only types them (client casts, not parses) and separately validates MCP tool-call parameters (#22)
+
+## [0.7.1] - 2026-06-23
+
+### Fixed
+
+- **Package runtime entrypoints** — `main`/`bin`/`exports` now point at built `dist/` outputs so the published npm package runs without the TypeScript sources (#16)
+- Stop redacting `account_number` from tool output — it is required input for account-scoped tools in multi-account setups (#14, #18)
+
+### Added
+
+- `docs/AGENT-IDENTITY.md` — agent identity verification and per-tool authorization guide for multi-agent deployments (#17)
+
+## [0.7.0] - 2026-04-01
+
+### Changed
+
+- **TokenStore auth architecture** — pluggable `TokenStore` adapters (`KeychainTokenStore` default, `EncryptedFileTokenStore` for Docker/headless with `ROBINHOOD_TOKENS_FILE` + `ROBINHOOD_TOKEN_KEY`), direct Bearer injection, and security hardening across the auth path (#8)
+- OpenClaw onboarding installs `robinhood-for-agents` as a workspace dependency so the skill's `bun` imports resolve (#8)
+
+### Removed
+
+- **Multi-browser login support from 0.6.2** — Brave/Chromium auto-detection and the `BROWSER_PATH` override were removed in the auth refactor; browser login is Google Chrome only (`playwright-core` `channel: "chrome"`)
 
 ## [0.6.2] - 2026-03-13
 
@@ -138,6 +178,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Safety controls: blocked fund transfers, blocked bulk cancels, explicit order parameters
 - Support for Claude Code, Codex, and OpenClaw agents
 
+[1.0.1]: https://github.com/kevin1chun/robinhood-for-agents/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.8.0...v1.0.0
+[0.8.0]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.7.2...v0.8.0
+[0.7.2]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.5.2...v0.6.0

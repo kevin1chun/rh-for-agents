@@ -35,7 +35,7 @@ describe("package publish entrypoints", () => {
   it("publishes built output instead of TypeScript source entrypoints", () => {
     expect(packageJson.scripts?.build).toBe("tsc -p tsconfig.build.json");
     expect(packageJson.scripts?.prepack).toBe("npm run build");
-    expect(packageJson.files).toEqual(["dist", "skills"]);
+    expect(packageJson.files).toEqual(["dist", "skills", "docs"]);
     expect(packageJson.bin?.["robinhood-for-agents"]).toBe("./dist/bin/robinhood-for-agents.js");
   });
 });

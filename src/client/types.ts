@@ -1532,8 +1532,7 @@ export type ScannerFilterSpec = z.infer<typeof ScannerFilterSpecSchema>;
  * Legend web bundle rather than a live populated capture (the reference account
  * has no saved scans); the MCP layer derives the faithful official fields
  * (`scan_id`/`title`/`column_count`) and is explicit about the ones it cannot
- * reproduce (`filter_summary`/`cortex_managed`/`sorting`). See
- * `docs/official-mcp-parity.md`.
+ * reproduce (`filter_summary`/`cortex_managed`/`sorting`).
  */
 export const ScanConfigurationSchema = z
   .object({
