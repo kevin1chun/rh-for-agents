@@ -7,12 +7,21 @@
 
 export const API_BASE = "https://api.robinhood.com";
 export const NUMMUS_BASE = "https://nummus.robinhood.com";
+// bonfire: order checks/warnings, unified portfolio, tax_info.
+// dora: news feed + similar instruments (research). Both reached with the
+// same standard Bearer token as api/nummus. `ceres/v1`, `discovery`, `pluto`,
+// `marketdata` and `beacon` (scanners) are path prefixes on API_BASE, so they
+// need no new origin.
+export const BONFIRE_BASE = "https://bonfire.robinhood.com";
+export const DORA_BASE = "https://dora.robinhood.com";
 
 /** Trusted origins for redirect safety. */
 export function trustedOrigins(): Set<string> {
   return new Set([
     new URL(API_BASE).origin,
     new URL(NUMMUS_BASE).origin,
+    new URL(BONFIRE_BASE).origin,
+    new URL(DORA_BASE).origin,
     new URL("https://robinhood.com").origin,
   ]);
 }
@@ -81,6 +90,16 @@ export function portfolioHistoricals(accountNumber: string): string {
   return `${API_BASE}/portfolios/historicals/${safeSegment(accountNumber, "accountNumber")}/`;
 }
 
+/** Unified portfolio snapshot (bonfire): equity/crypto/margin + buying-power breakdown. */
+export function unifiedPortfolio(accountNumber: string): string {
+  return `${BONFIRE_BASE}/accounts/${safeSegment(accountNumber, "accountNumber")}/unified/`;
+}
+
+/** Live per-asset-class market values + cash (bonfire). */
+export function portfolioLive(accountNumber: string): string {
+  return `${BONFIRE_BASE}/portfolio/account/${safeSegment(accountNumber, "accountNumber")}/live/`;
+}
+
 export function user(): string {
   return `${API_BASE}/user/`;
 }
@@ -141,6 +160,11 @@ export function stockHistoricalsFor(symbol: string): string {
   return `${API_BASE}/quotes/historicals/${safeSegment(symbol.toUpperCase(), "symbol")}/`;
 }
 
+/** Level-2 price book (aggregated bid/ask depth) for an instrument. */
+export function priceBookSnapshot(instrumentId: string): string {
+  return `${API_BASE}/marketdata/pricebook/snapshots/${safeSegment(instrumentId, "instrumentId")}/`;
+}
+
 export function news(symbol: string): string {
   return `${API_BASE}/midlands/news/${safeSegment(symbol.toUpperCase(), "symbol")}/`;
 }
@@ -183,8 +207,17 @@ export function optionInstruments(): string {
   return `${API_BASE}/options/instruments/`;
 }
 
+/** A single option instrument by id — used to validate a raw option_id before a write. */
+export function optionInstrument(optionId: string): string {
+  return `${API_BASE}/options/instruments/${safeSegment(optionId, "optionId")}/`;
+}
+
 export function optionMarketData(optionId: string): string {
   return `${API_BASE}/marketdata/options/${safeSegment(optionId, "optionId")}/`;
+}
+
+export function optionHistoricals(optionId: string): string {
+  return `${API_BASE}/marketdata/options/historicals/${safeSegment(optionId, "optionId")}/`;
 }
 
 export function optionOrders(): string {
@@ -201,6 +234,33 @@ export function optionPositions(): string {
 
 export function optionAggregatePositions(): string {
   return `${API_BASE}/options/aggregate_positions/`;
+}
+
+// ---------------------------------------------------------------------------
+// Order review (pre-trade simulation — read-only, standard-token GETs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Equity pre-trade preflight: collar `threshold_servars`, day-trade buying
+ * power, and priceband flags for one instrument. Query params `account_number`
+ * + `instrument`. Read-only (the app's order-preview screen calls this).
+ */
+export function equityOrderCheckPresubmit(): string {
+  return `${API_BASE}/orders/order_checks/presubmit_data/`;
+}
+
+/**
+ * Option pre-trade preflight: contract/spread `threshold_servars` for a chain.
+ * Query params `account_number` + `chain_id`. Note: no trailing slash (matches
+ * the app's request exactly). Read-only.
+ */
+export function optionOrderCheckPresubmit(): string {
+  return `${API_BASE}/options/order_checks/presubmit_data`;
+}
+
+/** Option collateral requirement for a chain. Query param `account_number`. Read-only. */
+export function optionChainCollateral(chainId: string): string {
+  return `${API_BASE}/options/chains/${safeSegment(chainId, "chainId")}/collateral/`;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,4 +353,100 @@ export function topMovers(): string {
 
 export function top100(): string {
   return `${API_BASE}/midlands/tags/tag/100-most-popular/`;
+}
+
+// ---------------------------------------------------------------------------
+// Watchlists (discovery/lists reads · midlands/lists writes)
+// ---------------------------------------------------------------------------
+
+/** The user's own watchlists (metadata, not items). */
+export function watchlistsDefault(): string {
+  return `${API_BASE}/discovery/lists/default/`;
+}
+
+/** Robinhood-curated lists the user can follow (paginated). */
+export function watchlistsPopular(): string {
+  return `${API_BASE}/discovery/lists/popular/`;
+}
+
+/**
+ * Items of a single watchlist, enriched with symbol/name (query param
+ * `list_id`). Works for both user-owned and curated lists; a non-existent
+ * list id returns 404, an empty list returns `{results: []}`.
+ */
+export function watchlistItems(): string {
+  return `${API_BASE}/discovery/lists/items/`;
+}
+
+/**
+ * Watchlist item add/remove (write). The migration from `/watchlists/` →
+ * `/discovery/lists/` left the item-write path on `midlands`; the body is a
+ * per-list-id map (built internally by the client — never exposed).
+ */
+export function watchlistItemsWrite(): string {
+  return `${API_BASE}/midlands/lists/items/`;
+}
+
+/**
+ * Create a watchlist (write). `POST /midlands/lists/` with the list object
+ * (display_name, …). Same `midlands` service as the confirmed item-write path.
+ */
+export function watchlistsWrite(): string {
+  return `${API_BASE}/midlands/lists/`;
+}
+
+/**
+ * Update (`PATCH`) or delete (`DELETE`) a single watchlist by id (write).
+ * `midlands/lists/{id}/` — same service as create + item-write.
+ */
+export function watchlistWrite(listId: string): string {
+  return `${API_BASE}/midlands/lists/${safeSegment(listId, "listId")}/`;
+}
+
+/**
+ * Follow (`POST` with an empty `{}` JSON body → 201) or unfollow (`DELETE` → 204)
+ * a Robinhood-curated list. The follower id is the caller's OWN profile uuid
+ * (from `GET /user/`.id) — never a tool param; only ever placed in the URL.
+ */
+export function watchlistFollower(listId: string, userId: string): string {
+  return `${API_BASE}/discovery/lists/${safeSegment(listId, "listId")}/followers/${safeSegment(userId, "userId")}/`;
+}
+
+/**
+ * Add an option to the options watchlist (write). `POST /discovery/lists/items/quick_add/`
+ * mints a single-leg `option_strategy` object from the leg and auto-routes it to
+ * the user's options watchlist (no list_id param). Removal is via the midlands
+ * item-write path (`watchlistItemsWrite`), keyed by the minted strategy object_id.
+ */
+export function watchlistItemQuickAdd(): string {
+  return `${API_BASE}/discovery/lists/items/quick_add/`;
+}
+
+// ---------------------------------------------------------------------------
+// Tax lots (read)
+// ---------------------------------------------------------------------------
+
+/**
+ * Open tax lots for one equity holding — `GET /tax_lots/open/{account}/{instrument}/`.
+ * Each lot is a separate acquisition with its own quantity, cost basis, acquisition
+ * date, and long/short-term status. Paginated; standard-token readable.
+ */
+export function equityTaxLotsOpen(accountNumber: string, instrumentId: string): string {
+  return `${API_BASE}/tax_lots/open/${safeSegment(accountNumber, "accountNumber")}/${safeSegment(instrumentId, "instrumentId")}/`;
+}
+
+// ---------------------------------------------------------------------------
+// Scanners / screeners (Beacon service, on api.robinhood.com)
+// ---------------------------------------------------------------------------
+
+/**
+ * The user's saved scanners (screeners). Served by the gRPC-transcoded Beacon
+ * Scanner service: `GET api.robinhood.com/beacon/scans/` → `{scans: [...]}`
+ * (camelCase wire fields), empty `{scans: []}` when the user has none. Takes no
+ * query params. The filter-spec catalog that powers scan-building is NOT a live
+ * route reachable with a standard token — it's served from an embedded capture
+ * (see `scanner-filter-specs.ts`).
+ */
+export function beaconScans(): string {
+  return `${API_BASE}/beacon/scans/`;
 }

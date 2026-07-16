@@ -55,7 +55,7 @@
 ```
 src/client/                    <- robinhood-for-agents client library
 ├── index.ts                   <- Exports: RobinhoodClient, getClient(), login()
-├── client.ts                  <- RobinhoodClient class (~50 async methods)
+├── client.ts                  <- RobinhoodClient class (76 async methods)
 ├── auth.ts                    <- Direct auth: TokenStore load, Bearer injection, 401 refresh
 ├── token-store.ts             <- TokenStore interface + KeychainTokenStore + EncryptedFileTokenStore
 ├── session.ts                 <- fetch wrapper (Bearer injection, 401 retry, redirect safety)
@@ -70,8 +70,7 @@ src/server/                    <- robinhood-for-agents MCP server
 ├── server.ts                  <- McpServer creation + tool registration
 ├── browser-auth.ts            <- Playwright browser login capture
 ├── cli/
-│   ├── onboard.ts            <- Interactive setup TUI
-│   ├── docker-setup.ts       <- Docker deployment setup
+│   ├── onboard.ts            <- Interactive setup TUI (also handles Docker token export)
 │   ├── install-mcp.ts        <- Install MCP server config
 │   ├── install-skills.ts     <- Install Claude Code skills
 │   ├── detect.ts             <- Agent detection
@@ -168,8 +167,9 @@ Auto-detection (`createTokenStore()`): if `ROBINHOOD_TOKENS_FILE` is set, uses `
 │           │                                                              │
 │           ▼                                                              │
 │  saveTokens() ──► token-store.ts                                        │
-│           │       Bun.secrets.set() → OS keychain                       │
-│           │       (tokens never written to disk)                        │
+│           │       createTokenStore().save() → OS keychain (default)     │
+│           │       or an AES-256-GCM encrypted file if                   │
+│           │       ROBINHOOD_TOKENS_FILE is set (see Token Storage below) │
 │           │                                                              │
 │           ▼                                                              │
 │  Close browser, return tokens to caller                                │

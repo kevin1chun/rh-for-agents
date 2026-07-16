@@ -35,7 +35,7 @@ Select "Docker / remote" when prompted. The onboard flow will:
 3. Print the encryption key and env var commands to copy into your container config
 
 After onboard completes, you will have:
-- An encrypted token file (default: `~/.robinhood-for-agents/tokens.enc`)
+- An encrypted token file at `./tokens.enc` — relative to wherever you ran `onboard` (this is the *export* artifact from `onboard.ts`, distinct from `EncryptedFileTokenStore`'s own built-in fallback path `~/.robinhood-for-agents/tokens.enc`, which only applies when no path or `ROBINHOOD_TOKENS_FILE` is given)
 - A base64 encryption key
 
 ### 2. Configure your container
@@ -57,7 +57,7 @@ services:
       ROBINHOOD_TOKENS_FILE: "/secrets/tokens.enc"
       ROBINHOOD_TOKEN_KEY: "${ROBINHOOD_TOKEN_KEY}"
     volumes:
-      - ~/.robinhood-for-agents/tokens.enc:/secrets/tokens.enc:rw
+      - ./tokens.enc:/secrets/tokens.enc:rw
 ```
 
 > **Note:** The volume must be mounted `:rw` (read-write), not `:ro`. When the access token expires, the SDK refreshes it and writes the updated tokens back to the encrypted file. A read-only mount will cause token refresh to fail silently, and the container will lose API access once the current token expires.
@@ -68,7 +68,7 @@ services:
 docker run \
   -e ROBINHOOD_TOKENS_FILE=/secrets/tokens.enc \
   -e ROBINHOOD_TOKEN_KEY="$ROBINHOOD_TOKEN_KEY" \
-  -v ~/.robinhood-for-agents/tokens.enc:/secrets/tokens.enc:rw \
+  -v ./tokens.enc:/secrets/tokens.enc:rw \
   your-agent-image
 ```
 
@@ -115,11 +115,11 @@ The `EncryptedFileTokenStore`:
 Kill the container. Once it is gone:
 - No process can read the encryption key from its env vars
 - The encrypted file on the host is useless without the key
-- No further token refreshes will occur, so the current access token expires naturally (~24h)
+- No further token refreshes will occur, so the current access token expires naturally (~8.5 days after it was issued)
 
 To revoke immediately, delete the encrypted file on the host:
 
 ```bash
-rm ~/.robinhood-for-agents/tokens.enc
+rm ./tokens.enc   # wherever you ran `onboard` from
 ```
 

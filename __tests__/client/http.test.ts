@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { APIError, NotFoundError, RateLimitError } from "../../src/client/errors.js";
-import { requestDelete, requestGet, requestPost } from "../../src/client/http.js";
+import { requestDelete, requestGet, requestPatch, requestPost } from "../../src/client/http.js";
 import type { RobinhoodSession } from "../../src/client/session.js";
 
 function mockSession(
@@ -15,6 +15,7 @@ function mockSession(
   return {
     get: vi.fn().mockImplementation(() => Promise.resolve(getResponse())),
     post: vi.fn().mockImplementation(() => Promise.resolve(getResponse())),
+    patch: vi.fn().mockImplementation(() => Promise.resolve(getResponse())),
     delete: vi.fn().mockImplementation(() => Promise.resolve(getResponse())),
   } as unknown as RobinhoodSession;
 }
@@ -103,6 +104,32 @@ describe("requestPost", () => {
       "https://api.test/",
       { key: "value" },
       { asJson: true, timeoutMs: undefined },
+    );
+  });
+});
+
+describe("requestPatch", () => {
+  it("returns JSON response", async () => {
+    const session = mockSession([jsonResponse({ ok: true })]);
+    const data = await requestPatch(session, "https://api.test/", { payload: { name: "x" } });
+    expect(data).toEqual({ ok: true });
+  });
+
+  it("returns empty object for 204", async () => {
+    const session = mockSession([{ ok: true, status: 204, json: () => Promise.resolve(null) }]);
+    const data = await requestPatch(session, "https://api.test/");
+    expect(data).toEqual({});
+  });
+
+  it("passes payload to session.patch", async () => {
+    const session = mockSession([jsonResponse({ ok: true })]);
+    await requestPatch(session, "https://api.test/", { payload: { name: "x" } });
+    expect(session.patch).toHaveBeenCalledWith(
+      "https://api.test/",
+      { name: "x" },
+      {
+        timeoutMs: undefined,
+      },
     );
   });
 });

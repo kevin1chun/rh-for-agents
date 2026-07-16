@@ -193,6 +193,68 @@ export const PortfolioSchema = z.object({
 });
 export type Portfolio = z.infer<typeof PortfolioSchema>;
 
+/** A money amount as returned by bonfire: `{amount, currency_code, currency_id}`. */
+export const MoneySchema = z.object({
+  amount: z.string().nullable().optional(),
+  currency_code: z.string().nullable().optional(),
+  currency_id: z.string().nullable().optional(),
+});
+export type Money = z.infer<typeof MoneySchema>;
+
+/**
+ * Unified portfolio snapshot (`bonfire/accounts/{acct}/unified/`): equity,
+ * buying-power breakdown, crypto/equities sub-accounts, and margin health.
+ * Permissive (`.catchall`) — bonfire is an internal service that adds fields.
+ */
+export const UnifiedPortfolioSchema = z
+  .object({
+    account_number: z.string().nullable().optional(),
+    rhs_account_number: z.string().nullable().optional(),
+    brokerage_account_type: z.string().nullable().optional(),
+    management_type: z.string().nullable().optional(),
+    nickname: z.string().nullable().optional(),
+    near_margin_call: z.boolean().nullable().optional(),
+    has_futures_account: z.boolean().nullable().optional(),
+    total_equity: MoneySchema.optional(),
+    portfolio_equity: MoneySchema.optional(),
+    total_market_value: MoneySchema.optional(),
+    account_buying_power: MoneySchema.optional(),
+    options_buying_power: MoneySchema.optional(),
+    crypto_buying_power: MoneySchema.optional(),
+    uninvested_cash: MoneySchema.optional(),
+    withdrawable_cash: MoneySchema.optional(),
+    previous_close: MoneySchema.optional(),
+    portfolio_previous_close: MoneySchema.optional(),
+    crypto: z.record(z.string(), z.unknown()).optional(),
+    equities: z.record(z.string(), z.unknown()).optional(),
+    margin_health: z.record(z.string(), z.unknown()).optional(),
+  })
+  .catchall(z.unknown());
+export type UnifiedPortfolio = z.infer<typeof UnifiedPortfolioSchema>;
+
+/** Live per-asset-class market values + cash (`bonfire/portfolio/account/{acct}/live/`). */
+export const PortfolioLiveSchema = z
+  .object({
+    account_number: z.string().nullable().optional(),
+    currency: z.string().nullable().optional(),
+    equity_market_value: z.string().nullable().optional(),
+    option_market_value: z.string().nullable().optional(),
+    forex_market_value: z.string().nullable().optional(),
+    futures_market_value: z.string().nullable().optional(),
+    futures_cash: z.string().nullable().optional(),
+    event_contracts_market_value: z.string().nullable().optional(),
+    event_contracts_cash: z.string().nullable().optional(),
+    deposit_adjusted_market_value: z.string().nullable().optional(),
+    cash: z.string().nullable().optional(),
+    brokerage_cash: z.string().nullable().optional(),
+    pending_deposits: z.string().nullable().optional(),
+    early_access_amount: z.string().nullable().optional(),
+    last_core_portfolio_equity: z.string().nullable().optional(),
+    margin_used: z.string().nullable().optional(),
+  })
+  .catchall(z.unknown());
+export type PortfolioLive = z.infer<typeof PortfolioLiveSchema>;
+
 export const UserProfileSchema = z.object({
   username: z.string(),
   email: z.string().optional(),
@@ -729,14 +791,53 @@ export type OptionMarketData = z.infer<typeof OptionMarketDataSchema>;
 
 export const OptionPositionSchema = z.object({
   url: z.string().optional(),
+  id: z.string().optional(),
   option: z.string().optional(),
+  option_id: z.string().optional(),
+  account: z.string().optional(),
+  account_number: z.string().optional(),
   quantity: z.string().optional(),
+  intraday_quantity: z.string().optional(),
   average_price: z.string().optional(),
+  intraday_average_open_price: z.string().optional(),
   type: z.string().optional(),
   chain_id: z.string().optional(),
   chain_symbol: z.string().optional(),
+  expiration_date: z.string().nullable().optional(),
+  trade_value_multiplier: z.string().nullable().optional(),
+  pending_buy_quantity: z.string().nullable().optional(),
+  pending_sell_quantity: z.string().nullable().optional(),
+  pending_expiration_quantity: z.string().nullable().optional(),
+  pending_exercise_quantity: z.string().nullable().optional(),
+  pending_assignment_quantity: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  opened_at: z.string().nullable().optional(),
 });
 export type OptionPosition = z.infer<typeof OptionPositionSchema>;
+
+export const OptionAggregatePositionSchema = z.object({
+  id: z.string().optional(),
+  chain: z.string().optional(),
+  account: z.string().optional(),
+  account_number: z.string().optional(),
+  symbol: z.string().optional(),
+  strategy: z.string().optional(),
+  strategy_code: z.string().nullable().optional(),
+  average_open_price: z.string().optional(),
+  intraday_average_open_price: z.string().nullable().optional(),
+  quantity: z.string().optional(),
+  intraday_quantity: z.string().nullable().optional(),
+  direction: z.string().nullable().optional(),
+  intraday_direction: z.string().nullable().optional(),
+  trade_value_multiplier: z.string().nullable().optional(),
+  underlying_type: z.string().nullable().optional(),
+  detail_display_name: z.string().nullable().optional(),
+  legs: z.array(z.record(z.string(), z.unknown())).optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+});
+export type OptionAggregatePosition = z.infer<typeof OptionAggregatePositionSchema>;
 
 // ---------------------------------------------------------------------------
 // Indexes
@@ -744,8 +845,10 @@ export type OptionPosition = z.infer<typeof OptionPositionSchema>;
 
 export const IndexInstrumentSchema = z.object({
   id: z.string(),
+  url: z.string().nullable().optional(),
   symbol: z.string(),
   simple_name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
   state: z.string().optional(),
   tradable_chain_ids: z.array(z.string()).optional(),
 });
@@ -761,6 +864,58 @@ export const IndexValueSchema = z.object({
   state: z.string().nullable().optional(),
 });
 export type IndexValue = z.infer<typeof IndexValueSchema>;
+
+// ---------------------------------------------------------------------------
+// Price book (Level 2) & option historicals
+// ---------------------------------------------------------------------------
+
+/** One aggregated depth level. Permissive — `price` may be a scalar or money object. */
+export const PriceBookEntrySchema = z
+  .object({
+    side: z.string().nullable().optional(),
+    price: z.unknown().optional(),
+    quantity: z.union([z.string(), z.number()]).nullable().optional(),
+  })
+  .catchall(z.unknown());
+export type PriceBookEntry = z.infer<typeof PriceBookEntrySchema>;
+
+/** Level-2 price book (`marketdata/pricebook/snapshots/{id}/`). */
+export const PriceBookSchema = z.object({
+  instrument_id: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  asks: z.array(PriceBookEntrySchema).optional(),
+  bids: z.array(PriceBookEntrySchema).optional(),
+});
+export type PriceBook = z.infer<typeof PriceBookSchema>;
+
+export const OptionHistoricalPointSchema = z.object({
+  begins_at: z.string().optional(),
+  open_price: z.string().nullable().optional(),
+  close_price: z.string().nullable().optional(),
+  high_price: z.string().nullable().optional(),
+  low_price: z.string().nullable().optional(),
+  volume: z.number().nullable().optional(),
+  session: z.string().nullable().optional(),
+  interpolated: z.boolean().nullable().optional(),
+});
+export type OptionHistoricalPoint = z.infer<typeof OptionHistoricalPointSchema>;
+
+/** Historical OHLC series for a single option (`marketdata/options/historicals/{id}/`). */
+export const OptionHistoricalSchema = z.object({
+  id: z.string().optional(),
+  instrument: z.string().nullable().optional(),
+  symbol: z.string().nullable().optional(),
+  occ_symbol: z.string().nullable().optional(),
+  interval: z.string().nullable().optional(),
+  span: z.string().nullable().optional(),
+  bounds: z.string().nullable().optional(),
+  open_time: z.string().nullable().optional(),
+  open_price: z.string().nullable().optional(),
+  previous_close_time: z.string().nullable().optional(),
+  previous_close_price: z.string().nullable().optional(),
+  data_points: z.array(OptionHistoricalPointSchema).optional(),
+});
+export type OptionHistorical = z.infer<typeof OptionHistoricalSchema>;
 
 // ---------------------------------------------------------------------------
 // Stock Orders
@@ -1100,6 +1255,93 @@ export const CryptoOrderSchema = z.object({
 export type CryptoOrder = z.infer<typeof CryptoOrderSchema>;
 
 // ---------------------------------------------------------------------------
+// Realized P&L (Phase 2) — COMPUTED client-side, not an API response shape.
+// Equity trades are matched FIFO from order history (no standard-token REST
+// endpoint exists); crypto trades reuse the native `gain_loss` on nummus orders.
+// These are plain interfaces (computed), not Zod-validated wire schemas.
+// ---------------------------------------------------------------------------
+
+export interface RealizedPnlTrade {
+  symbol: string;
+  side: string;
+  /** matched/closed quantity */
+  quantity: number;
+  /** closing price per share/unit */
+  price: number;
+  /** realized gain/loss in account currency (equity: proceeds − matched cost − fees; crypto: native gain_loss) */
+  realizedGain: number;
+  /** earliest matched buy timestamp (equity FIFO); null for crypto (native, no lot matching here) */
+  openedAt: string | null;
+  /** closing timestamp */
+  closedAt: string;
+  assetClass: "equity" | "crypto";
+}
+
+export interface RealizedPnlData {
+  /** equity (FIFO) + crypto (native) realized trades, chronological by closedAt */
+  trades: RealizedPnlTrade[];
+  /** symbols where a sell exceeded accumulated long lots — basis is incomplete for these */
+  overrunSymbols: string[];
+  /** sum of realizedGain across all trades */
+  totalRealizedGain: number;
+}
+
+// ---------------------------------------------------------------------------
+// Order review (Phase 3) — pre-trade simulation composed from read-only reads.
+// NOTHING is placed. The price collar is reproduced from the account's live
+// presubmit `threshold_servars`; see src/compute/order-review.ts. Account
+// identifiers read from response bodies are scrubbed — only the caller-supplied
+// account_number is ever echoed (by the MCP layer).
+// ---------------------------------------------------------------------------
+
+export interface EquityOrderReview {
+  symbol: string;
+  side: "buy" | "sell";
+  /** derived from (limit_price, stop_price): market | limit | stop_loss | stop_limit */
+  type: string;
+  quantity: number;
+  limit_price: number | null;
+  stop_price: number | null;
+  /** reproduced order_checks: `{}` when no collar alert fires, else one alert */
+  order_checks: Record<string, unknown>;
+  /** collar criteria that actually ran (a non-empty list is what makes `{}` mean "clear") */
+  evaluated_checks: string[];
+  /** collar criteria that could not run (missing price / servar) — never counted as passed */
+  not_evaluated_checks: string[];
+  /** the live equity quote used for the collar and for cost visibility */
+  quote: Quote | null;
+  /** ISO timestamp of the quote (TOCTOU: re-review before placing if stale) */
+  quote_timestamp: string | null;
+}
+
+export interface OptionOrderReviewLeg {
+  expiration_date: string;
+  strike: number;
+  option_type: "call" | "put";
+  side: "buy" | "sell";
+  position_effect: "open" | "close";
+  ratio_quantity: number;
+  /** per-leg market data (mark/bid/ask/greeks), or null if unresolved */
+  market_data: OptionMarketData | null;
+}
+
+export interface OptionOrderReview {
+  symbol: string;
+  direction: "debit" | "credit";
+  /** net limit price per contract */
+  price: number;
+  quantity: number;
+  legs: OptionOrderReviewLeg[];
+  /** collateral requirement (from the chain collateral endpoint); account ids scrubbed */
+  collateral: Record<string, unknown> | null;
+  /** reproduced checks — a deliberately thin set for options (see not_evaluated_checks) */
+  order_checks: Record<string, unknown>;
+  evaluated_checks: string[];
+  not_evaluated_checks: string[];
+  quote_timestamp: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Markets & Dividends
 // ---------------------------------------------------------------------------
 
@@ -1125,3 +1367,192 @@ export const DividendSchema = z.object({
   state: z.string().optional(),
 });
 export type Dividend = z.infer<typeof DividendSchema>;
+
+// ---------------------------------------------------------------------------
+// Watchlists (discovery/lists)
+// ---------------------------------------------------------------------------
+
+/**
+ * A watchlist's metadata (an entry in `discovery/lists/default/` for the user's
+ * own lists, or `discovery/lists/popular/` for Robinhood-curated lists). This is
+ * the *list*, not its items — fetch membership via `getWatchlistItems(id)`.
+ * `.catchall` tolerates the extra fields curated lists carry over custom ones.
+ */
+export const WatchlistSchema = z
+  .object({
+    id: z.string(),
+    display_name: z.string().nullable().optional(),
+    display_description: z.string().nullable().optional(),
+    owner: z.string().nullable().optional(),
+    owner_type: z.string().nullable().optional(),
+    read_permission: z.string().nullable().optional(),
+    allowed_object_types: z.array(z.string()).optional(),
+    item_count: z.number().nullable().optional(),
+    followed: z.boolean().nullable().optional(),
+    icon_emoji: z.string().nullable().optional(),
+    default_expanded: z.boolean().nullable().optional(),
+    child_sort_direction: z.string().nullable().optional(),
+    child_sort_order: z.string().nullable().optional(),
+    created_at: z.string().nullable().optional(),
+    updated_at: z.string().nullable().optional(),
+  })
+  .catchall(z.unknown());
+export type Watchlist = z.infer<typeof WatchlistSchema>;
+
+/**
+ * A single item in a watchlist, as returned (already enriched with symbol/name)
+ * by `discovery/lists/items/?list_id=`. Heterogeneous: `object_type` is one of
+ * instrument / index / currency_pair / option_strategy / futures /
+ * tokenized_stock; `object_id` is that object's UUID. The endpoint also carries
+ * volatile market-data fields (price/market_cap/…) — kept permissive via
+ * `.catchall` and generally re-fetched via get_quotes rather than trusted here.
+ */
+export const WatchlistItemSchema = z
+  .object({
+    id: z.string().nullable().optional(),
+    list_id: z.string().nullable().optional(),
+    object_id: z.string(),
+    object_type: z.string(),
+    symbol: z.string().nullable().optional(),
+    name: z.string().nullable().optional(),
+    weight: z.string().nullable().optional(),
+    owner_type: z.string().nullable().optional(),
+    created_at: z.string().nullable().optional(),
+    updated_at: z.string().nullable().optional(),
+  })
+  .catchall(z.unknown());
+export type WatchlistItem = z.infer<typeof WatchlistItemSchema>;
+
+/** The kinds of object a watchlist can hold. */
+export type WatchlistObjectType =
+  | "instrument"
+  | "index"
+  | "currency_pair"
+  | "option_strategy"
+  | "futures"
+  | "tokenized_stock";
+
+/** A typed reference used when writing watchlist membership (add/remove). */
+export interface WatchlistItemRef {
+  object_type: WatchlistObjectType;
+  object_id: string;
+}
+
+// ---------------------------------------------------------------------------
+// Options watchlist contracts (read)
+// ---------------------------------------------------------------------------
+
+/**
+ * One single-leg option contract on the options watchlist, as returned by
+ * `GET /discovery/lists/items/?list_id=&load_all_attributes=false`. `object_id`
+ * is the minted `option_strategy` id — the watchlist's primary key, used for
+ * removal. `strategy_code` encodes the underlying option instrument id and the
+ * leg direction as `"{option_id}_L1"` (long single-leg) / `"{option_id}_S1"`
+ * (short). `.catchall` tolerates fields Robinhood adds.
+ */
+export const OptionWatchlistContractSchema = z
+  .object({
+    id: z.string().nullable().optional(),
+    object_id: z.string(),
+    object_type: z.string(),
+    strategy_code: z.string().nullable().optional(),
+    strategy: z.string().nullable().optional(),
+    chain_symbol: z.string().nullable().optional(),
+    name: z.string().nullable().optional(),
+  })
+  .catchall(z.unknown());
+export type OptionWatchlistContract = z.infer<typeof OptionWatchlistContractSchema>;
+
+// ---------------------------------------------------------------------------
+// Tax lots (read)
+// ---------------------------------------------------------------------------
+
+/**
+ * One open tax lot for an equity holding — `GET /tax_lots/open/{account}/{instrument}/`.
+ * Each lot is a separate acquisition still held, with its own quantity, cost
+ * basis, acquisition date, and long/short-term status. Money fields are FLAT
+ * decimal strings (no currency sub-object); `cost_per_share` is null for lots
+ * without a computed per-share basis. Shapes verified against a live populated lot.
+ */
+export const TaxLotSchema = z
+  .object({
+    account_number: z.string().nullable().optional(),
+    instrument_id: z.string().nullable().optional(),
+    open_lot_id: z.string().nullable().optional(),
+    order_id: z.string().nullable().optional(),
+    open_tran_type: z.string().nullable().optional(),
+    quantity: z.string().nullable().optional(),
+    quantity_available: z.string().nullable().optional(),
+    book_cost_basis: z.string().nullable().optional(),
+    tax_cost_basis: z.string().nullable().optional(),
+    book_proceeds: z.string().nullable().optional(),
+    open_date: z.string().nullable().optional(),
+    term: z.string().nullable().optional(),
+    is_selectable: z.boolean().nullable().optional(),
+    cost_per_share: z.string().nullable().optional(),
+  })
+  .catchall(z.unknown());
+export type TaxLot = z.infer<typeof TaxLotSchema>;
+
+// ---------------------------------------------------------------------------
+// Scanners / screeners (Beacon service)
+// ---------------------------------------------------------------------------
+
+/**
+ * One entry in the scanner filter-spec catalog — a filter usable to build a
+ * scan, plus the predicates/units/lengths/intervals/plots it accepts. This
+ * matches the official `get_scanner_filter_specs` DTO exactly (snake_case).
+ *
+ * The catalog is account-agnostic and static; we serve it from an embedded
+ * capture (see `scanner-filter-specs.ts`) rather than a live read, because the
+ * Beacon filter-spec REST route isn't reachable with a standard token and its
+ * raw wire shape differs from this DTO. `.catchall` tolerates any field
+ * Robinhood may add so a future spec variant still types cleanly.
+ */
+export const ScannerFilterSpecSchema = z
+  .object({
+    filter_type: z.string(),
+    display_name: z.string(),
+    filter_group: z.string(),
+    value_type: z.string(),
+    unit_type: z.string(),
+    supported_predicates: z.array(z.string()),
+    supported_lengths: z.array(z.number()).optional(),
+    supported_intervals: z.array(z.string()).optional(),
+    supported_plots: z.array(z.string()).optional(),
+  })
+  .catchall(z.unknown());
+export type ScannerFilterSpec = z.infer<typeof ScannerFilterSpecSchema>;
+
+/**
+ * A saved scanner (screener) as returned raw by the Beacon service
+ * (`GET api.robinhood.com/beacon/scans/` → `{scans: [...]}`). Fields are
+ * camelCase wire values — NOT the official MCP's reshaped DTO. Everything is
+ * optional/nullable + `.catchall` because this is modeled from Robinhood's
+ * Legend web bundle rather than a live populated capture (the reference account
+ * has no saved scans); the MCP layer derives the faithful official fields
+ * (`scan_id`/`title`/`column_count`) and is explicit about the ones it cannot
+ * reproduce (`filter_summary`/`cortex_managed`/`sorting`). See
+ * `docs/official-mcp-parity.md`.
+ */
+export const ScanConfigurationSchema = z
+  .object({
+    columns: z.array(z.unknown()).nullable().optional(),
+    filters: z.array(z.unknown()).nullable().optional(),
+    sortingColumnId: z.string().nullable().optional(),
+    sortingDirection: z.string().nullable().optional(),
+    version: z.union([z.string(), z.number()]).nullable().optional(),
+  })
+  .catchall(z.unknown());
+
+export const ScanSchema = z
+  .object({
+    id: z.string().nullable().optional(),
+    scanId: z.string().nullable().optional(),
+    title: z.string().nullable().optional(),
+    activeScanConfiguration: ScanConfigurationSchema.nullable().optional(),
+    columnCount: z.number().nullable().optional(),
+    conversationId: z.string().nullable().optional(),
+  })
+  .catchall(z.unknown());
+export type Scan = z.infer<typeof ScanSchema>;

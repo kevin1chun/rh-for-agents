@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-15
+
+### Added
+
+- **Equity tax lots** — `getEquityTaxLots(symbol, {accountNumber})` client method + `robinhood_get_equity_tax_lots` MCP tool (`GET /tax_lots/open/{account}/{instrument}/`, standard-token readable). Returns the open tax lots for one holding — quantity, book/tax cost basis, acquisition date, long/short-term status, `open_lot_id`. New `TaxLot` type + schema. Symbol resolved by exact match; per-lot `account_number` scrubbed (only the caller-supplied one is echoed); results are complete (no account-encoding pagination cursor is surfaced).
+- **Curated-list follow/unfollow** — `robinhood_follow_watchlist` / `robinhood_unfollow_watchlist` (+ `followWatchlist`/`unfollowWatchlist` client methods). `POST`/`DELETE /discovery/lists/{list_id}/followers/{user_id}/`; the caller's own profile id is resolved internally (never a param), cached per session, and structurally redacted from any error text. Results are declarative (`{list_id, followed}`).
+- **Options-watchlist contract writes** — `robinhood_add_option_to_watchlist` / `robinhood_remove_option_from_watchlist` (+ `quickAddOption`, `getOptionWatchlistContracts`, `getOptionInstrumentById` client methods). Add mints single-leg contracts via `quick_add` (deduped against current contents so it stays idempotent); remove matches by exact `strategy_code` and deletes via the midlands bulk-delete primitive. `position_type` accepts `"long"` only over this path (short-leg entries are directed to the app).
+
+### Changed
+
+- **`robinhood_get_option_watchlist` now returns the contracts** on the options watchlist (each with its `object_id`, derived `option_id`, and `position_type`), rather than just the list metadata — matching the official Trading MCP tool. It reads with `load_all_attributes=false` (the options list rejects the server default). Multi-leg strategies are listed with a null `option_id` and directed to the app.
+- **MCP tool layer modernized** — all 49 tools migrated from the legacy `server.tool()` API to `registerTool` with human-readable `title`s, full annotation coverage (`readOnlyHint: true` on every read; explicit `destructiveHint`/`idempotentHint` on order placement, cancel, and login — previously only the Tier-2 write tools carried annotations), and structured output (`outputSchema` + `structuredContent`). Structured content passes through the same redaction as the text block (built by re-parsing the redacted JSON, so the two can never drift). Output schemas type only handler-constructed envelope keys and stay deliberately loose on API-passthrough data, so upstream schema drift can't become a runtime tool failure. New end-to-end tests run the tools through the real MCP SDK over an in-memory transport (which caught a `z.record()` top-level schema the SDK silently drops — replaced with `z.looseObject({})`).
+- **Overlapping tool descriptions disambiguated** — `robinhood_get_stock_quote` vs `robinhood_get_fundamentals` and `robinhood_get_orders` vs `robinhood_get_option_orders` now each state when to prefer the other.
+- **Skill + docs accuracy pass** — new client-first `watchlists.md` domain file (extracted from SKILL.md); SKILL.md slimmed by folding its method-inventory table into `client-api.md`, which also gained missing methods and dropped a documented-but-nonexistent `getOpenOptionPositions` (real methods: `getOptionPositions` / `getOptionAggregatePositions`); fixed stale "~24h token" and Google-Chrome-only claims across skill files (access tokens last ~8.5 days with auto-refresh; any Chromium-based browser works, login-only); skill `allowed-tools` now pre-approves the primary `bun` execution path; CLAUDE.md counts corrected (49 tools, 76 client methods).
+
 ## [0.8.0] - 2026-07-14
 
 ### Added

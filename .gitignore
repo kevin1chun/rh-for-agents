@@ -8,3 +8,5 @@ dist/
 *~
 coverage/
 .claude/
+# Never commit HAR captures — they contain tokens, account numbers, and balances
+*.har

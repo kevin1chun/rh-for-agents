@@ -181,13 +181,20 @@ export async function onboard(preselectedAgent?: AgentId): Promise<void> {
   }
 
   if (tokensAvailable) {
+    // Reflect whichever store createTokenStore() actually picked (keychain,
+    // or an already-configured ROBINHOOD_TOKENS_FILE) — don't assume keychain.
+    const usingFileStore = !!process.env.ROBINHOOD_TOKENS_FILE?.trim();
+    const activeStoreLabel = usingFileStore
+      ? "tokens in the configured encrypted file — ready to go"
+      : "tokens in OS keychain — ready to go";
+
     const deployment = await p.select({
       message: "Where is your agent running?",
       options: [
         {
           value: "local" as const,
           label: "This machine (local)",
-          hint: "tokens in OS keychain — ready to go",
+          hint: activeStoreLabel,
         },
         {
           value: "docker" as const,
@@ -204,6 +211,8 @@ export async function onboard(preselectedAgent?: AgentId): Promise<void> {
 
     if (deployment === "docker") {
       await exportEncryptedTokens();
+    } else if (usingFileStore) {
+      p.log.success("Tokens are stored in the configured encrypted file. Ready to use.");
     } else {
       p.log.success("Tokens are stored in the OS keychain. Ready to use.");
     }
@@ -234,17 +243,17 @@ function copyToClipboard(text: string): void {
 }
 
 async function exportEncryptedTokens(): Promise<void> {
-  const { EncryptedFileTokenStore, KeychainTokenStore } = await import(
-    "../../client/token-store.js"
-  );
+  const { EncryptedFileTokenStore, createTokenStore } = await import("../../client/token-store.js");
 
   const spinner = p.spinner();
   spinner.start("Encrypting tokens...");
 
-  const keychain = new KeychainTokenStore();
-  const tokens = await keychain.load();
+  // Read from whichever store is actually active (keychain, or an existing
+  // ROBINHOOD_TOKENS_FILE) rather than assuming keychain — a session logged
+  // in while file-store mode was configured never touches the keychain.
+  const tokens = await createTokenStore().load();
   if (!tokens) {
-    spinner.stop("No tokens found in keychain.");
+    spinner.stop("No tokens found in the active token store.");
     return;
   }
 

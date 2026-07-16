@@ -2,14 +2,14 @@
 name: robinhood-for-agents
 description: Trade stocks, options, and crypto on Robinhood — dual mode (MCP tools or TypeScript client).
 homepage: https://github.com/kevin1chun/robinhood-for-agents
-allowed-tools: mcp__robinhood-for-agents__*
+allowed-tools: Bash(bun:*), Bash(bunx robinhood-for-agents:*), mcp__robinhood-for-agents__*
 install:
   - kind: node
     package: robinhood-for-agents
     bins: [robinhood-for-agents]
 requires:
-  bins: [bun, google-chrome]
-metadata: {"credentials":"OAuth tokens stored via TokenStore adapters: KeychainTokenStore (OS keychain, default) or EncryptedFileTokenStore (for Docker/headless). restoreSession() loads tokens and injects Bearer auth directly. Tokens expire ~24h with auto-refresh on 401.","chrome":"Required only for initial login (bunx robinhood-for-agents onboard). Not needed for subsequent API calls."}
+  bins: [bun]
+metadata: {"credentials":"OAuth tokens stored via TokenStore adapters: KeychainTokenStore (OS keychain, default) or EncryptedFileTokenStore (for Docker/headless). restoreSession() loads tokens and injects Bearer auth directly. Access tokens last ~8.5 days and auto-refresh on 401 via the stored refresh token, so the user stays logged in for roughly a week+ before a browser re-login is needed.","chrome":"A Chromium-based browser (Chrome, Brave, or Chromium — auto-detected on macOS, override with BROWSER_PATH) is required only for initial login (bunx robinhood-for-agents onboard). Not needed for subsequent API calls."}
 ---
 
 # robinhood-for-agents
@@ -56,6 +56,10 @@ See [client-api.md](client-api.md) for all available methods and signatures.
 | Stock research / analysis | [research.md](research.md) | "research AAPL", "analyze TSLA", "due diligence on NVDA" |
 | Buy / sell / orders / cancel | [trade.md](trade.md) | "buy 10 shares of AAPL", "sell my TSLA", "cancel my order" |
 | Options / calls / puts / chains | [options.md](options.md) | "show AAPL options", "SPX calls", "0DTE options", "covered calls" |
+| Watchlists / lists / "add to my list" | [watchlists.md](watchlists.md) | "my watchlists", "add NVDA to my tech list", "remove TSLA from watchlist" |
+| Scanners / screeners / saved screens | [reference.md](reference.md) | "my scanners", "my saved screens", "what filters can I scan on" |
+| Realized P&L / gains / "how did my trades do" | [reference.md](reference.md) | "my realized gains", "P&L this year", "how did my trades do" |
+| Tax lots / cost basis per holding | [reference.md](reference.md) | "tax lots for AAPL", "cost basis of my NVDA lots", "which lots are long-term" |
 
 Read the corresponding domain file for detailed workflow instructions.
 
@@ -66,36 +70,14 @@ bun -e 'import { getClient } from "robinhood-for-agents"; const rh = getClient()
 ```
 If it throws, follow [setup.md](setup.md) to authenticate.
 
-## Client Method Inventory
+## Client Methods
 
-| Method | Category | Description |
-|---|---|---|
-| `restoreSession()` | Auth | Restore/validate session (throws if not authenticated) |
-| `getAccountProfile()` | Account | Account details and preferences |
-| `getAccounts()` | Account | All brokerage accounts |
-| `buildHoldings(opts?)` | Portfolio | Holdings with P&L, equity, buying power |
-| `getCryptoPositions()` | Crypto | Crypto holdings |
-| `getCryptoQuote(symbol)` | Crypto | Current crypto price |
-| `getQuotes(symbols)` | Research | Stock quotes (price, bid/ask, P/E) |
-| `getFundamentals(symbols)` | Research | Market cap, valuation, dividends, 52-week range, sector |
-| `getNews(symbol)` | Research | Recent news articles |
-| `getRatings(symbol)` | Research | Analyst buy/hold/sell ratings |
-| `getEarnings(symbol)` | Research | Quarterly EPS history |
-| `getStockHistoricals(symbols, opts?)` | Research | OHLCV price history |
-| `findInstruments(query)` | Research | Search stocks by keyword |
-| `getChains(symbol)` | Options | Option chain expirations |
-| `findTradableOptions(symbol, opts?)` | Options | Option instruments by expiration/strike/type |
-| `getOptionMarketData(symbol, exp, strike, type)` | Options | Greeks and pricing |
-| `getIndexValue(symbol)` | Options | Current index value (SPX, NDX, etc.) |
-| `getMovers()` | Markets | Top market movers |
-| `orderStock(symbol, side, qty, opts?)` | Trading | Place stock order |
-| `orderOption(symbol, legs, price, qty, dir, opts?)` | Trading | Place option order |
-| `orderCrypto(symbol, side, amount, opts?)` | Trading | Place crypto order |
-| `getAllStockOrders()` / `getOpenStockOrders()` | Trading | View stock orders |
-| `cancelStockOrder(id)` | Trading | Cancel stock order |
-| `getStockOrder(id)` | Trading | Check order fill status |
+The client exposes 70+ async methods across auth, portfolio, research, options, orders, watchlists, scanners, P&L, and tax lots.
+
+- [client-api.md](client-api.md) — full method reference (signatures, options, examples) and the MCP↔client mapping table
+- [reference.md](reference.md) — MCP tool parameters (if using MCP mode instead of the client)
 
 ## Important Notes
 - **Do NOT use `phoenix.robinhood.com`** — use `api.robinhood.com` endpoints only
 - Multi-account is first-class: always ask which account when multiple exist
-- Session tokens expire ~24h; the client auto-refreshes before requiring re-auth
+- Session tokens (access token) last ~8.5 days; the client auto-refreshes on 401 via the stored refresh token, so re-auth is only needed roughly once a week+

@@ -23,10 +23,11 @@ vi.mock("../../src/client/auth.js", () => ({
 }));
 
 import type { Mock } from "vitest";
-import { requestGet, requestPost } from "../../src/client/http.js";
+import { requestDelete, requestGet, requestPost } from "../../src/client/http.js";
 
 const mockRequestGet = requestGet as Mock;
 const mockRequestPost = requestPost as Mock;
+const mockRequestDelete = requestDelete as Mock;
 
 describe("RobinhoodClient", () => {
   let client: RobinhoodClient;
@@ -898,6 +899,407 @@ describe("RobinhoodClient", () => {
       expect(md?.adjusted_mark_price).toBe("5.40");
       expect(md?.ask_size).toBe(30);
       expect(md?.instrument).toBe("https://api.robinhood.com/options/instruments/opt1/");
+    });
+  });
+
+  describe("Phase 1A reads", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("getUnifiedPortfolio hits bonfire with the resolved account number", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ account_number: "ACC1", url: "u" }]); // getAccounts
+      mockRequestGet.mockResolvedValueOnce({ total_equity: { amount: "1" } });
+      const u = await client.getUnifiedPortfolio();
+      expect(mockRequestGet).toHaveBeenLastCalledWith(
+        expect.anything(),
+        "https://bonfire.robinhood.com/accounts/ACC1/unified/",
+      );
+      expect(u?.total_equity?.amount).toBe("1");
+    });
+
+    it("getUnifiedPortfolio accepts an explicit account number (no lookup)", async () => {
+      mockRequestGet.mockResolvedValueOnce({ total_equity: { amount: "2" } });
+      await client.getUnifiedPortfolio("ACCX");
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://bonfire.robinhood.com/accounts/ACCX/unified/",
+      );
+    });
+
+    it("getUnifiedPortfolio returns null (not throw) when bonfire 404s for a non-default account", async () => {
+      mockRequestGet.mockRejectedValueOnce(new NotFoundError("HTTP 404"));
+      const u = await client.getUnifiedPortfolio("ACCX");
+      expect(u).toBeNull();
+    });
+
+    it("getUnifiedPortfolio still rejects on a non-404 error", async () => {
+      mockRequestGet.mockRejectedValueOnce(new Error("network blip"));
+      await expect(client.getUnifiedPortfolio("ACCX")).rejects.toThrow("network blip");
+    });
+
+    it("getUnifiedPortfolio still rejects when there is no account to resolve at all — the 404-swallow is scoped to the unified request only, not account resolution", async () => {
+      mockRequestGet.mockResolvedValueOnce([]); // getAccounts() -> no accounts
+      await expect(client.getUnifiedPortfolio()).rejects.toThrow("No brokerage account found");
+    });
+
+    it("getPortfolioLive hits the bonfire live endpoint", async () => {
+      mockRequestGet.mockResolvedValueOnce({ equity_market_value: "3" });
+      const live = await client.getPortfolioLive("ACCX");
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://bonfire.robinhood.com/portfolio/account/ACCX/live/",
+      );
+      expect(live.equity_market_value).toBe("3");
+    });
+
+    it("getOptionPositions paginates /options/positions/", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ chain_symbol: "AAPL" }]);
+      const p = await client.getOptionPositions({ nonzero: true });
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/options/positions/",
+        expect.objectContaining({ dataType: "pagination", params: { nonzero: "true" } }),
+      );
+      expect(p).toHaveLength(1);
+    });
+
+    it("getOptionAggregatePositions paginates the aggregate endpoint", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ symbol: "AAPL", strategy: "long_call" }]);
+      await client.getOptionAggregatePositions();
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/options/aggregate_positions/",
+        expect.objectContaining({ dataType: "pagination" }),
+      );
+    });
+
+    it("getPriceBook resolves the instrument then fetches the snapshot", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "inst9", symbol: "AAPL" }]); // findInstruments
+      mockRequestGet.mockResolvedValueOnce({ instrument_id: "inst9", asks: [], bids: [] });
+      const pb = await client.getPriceBook("aapl");
+      expect(mockRequestGet).toHaveBeenLastCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/marketdata/pricebook/snapshots/inst9/",
+      );
+      expect(pb.instrument_id).toBe("inst9");
+    });
+
+    it("getEarningsCalendar passes the range param", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ symbol: "AAPL" }]);
+      await client.getEarningsCalendar(3);
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/marketdata/earnings/",
+        expect.objectContaining({ dataType: "results", params: { range: "3day" } }),
+      );
+    });
+
+    it("getEarningsCalendar rejects a zero range", async () => {
+      await expect(client.getEarningsCalendar(0)).rejects.toThrow(/non-zero/);
+    });
+
+    it("getIndexInstruments reads the indexes list", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "i1", symbol: "SPX" }]);
+      const idx = await client.getIndexInstruments();
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/indexes/",
+        expect.objectContaining({ dataType: "results" }),
+      );
+      expect(idx[0]?.symbol).toBe("SPX");
+    });
+
+    it("getTradability projects tradability fields per symbol", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "1", symbol: "AAPL", tradeable: true, tradability: "tradable" },
+      ]);
+      const tr = await client.getTradability("aapl");
+      expect(tr).toEqual([
+        expect.objectContaining({ symbol: "AAPL", tradeable: true, tradability: "tradable" }),
+      ]);
+    });
+  });
+
+  describe("Scanners", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("getScannerFilterSpecs returns the embedded catalog without any HTTP", async () => {
+      const specs = await client.getScannerFilterSpecs();
+      expect(Array.isArray(specs)).toBe(true);
+      expect(specs.length).toBeGreaterThan(0);
+      // Static catalog — must never touch the network.
+      expect(mockRequestGet).not.toHaveBeenCalled();
+      // Each entry has the official DTO's required shape.
+      expect(specs[0]).toEqual(
+        expect.objectContaining({
+          filter_type: expect.any(String),
+          display_name: expect.any(String),
+          filter_group: expect.any(String),
+          value_type: expect.any(String),
+          unit_type: expect.any(String),
+          supported_predicates: expect.any(Array),
+        }),
+      );
+    });
+
+    it("getScannerFilterSpecs returns a fresh copy each call (caller can't corrupt the catalog)", async () => {
+      const a = await client.getScannerFilterSpecs();
+      const original = a.length;
+      a.pop();
+      const b = await client.getScannerFilterSpecs();
+      expect(b.length).toBe(original);
+    });
+
+    it("getScannerFilterSpecs requires auth", async () => {
+      const fresh = new RobinhoodClient();
+      await expect(fresh.getScannerFilterSpecs()).rejects.toThrow(NotLoggedInError);
+    });
+
+    it("getScans GETs the beacon scans endpoint and unwraps the scans array", async () => {
+      mockRequestGet.mockResolvedValueOnce({ scans: [{ scanId: "s1", title: "Momentum" }] });
+      const scans = await client.getScans();
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/beacon/scans/",
+      );
+      expect(scans).toEqual([{ scanId: "s1", title: "Momentum" }]);
+    });
+
+    it("getScans returns [] for an account with no saved scans", async () => {
+      mockRequestGet.mockResolvedValueOnce({ scans: [] });
+      expect(await client.getScans()).toEqual([]);
+    });
+
+    it("getScans tolerates a missing scans key", async () => {
+      mockRequestGet.mockResolvedValueOnce({});
+      expect(await client.getScans()).toEqual([]);
+    });
+
+    it("getScans requires auth", async () => {
+      const fresh = new RobinhoodClient();
+      await expect(fresh.getScans()).rejects.toThrow(NotLoggedInError);
+    });
+  });
+
+  describe("Phase 1B watchlists", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("getWatchlists reads discovery/lists/default/", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "L1", display_name: "My List" }]);
+      const lists = await client.getWatchlists();
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/discovery/lists/default/",
+        expect.objectContaining({ dataType: "results" }),
+      );
+      expect(lists[0]?.id).toBe("L1");
+    });
+
+    it("getPopularWatchlists paginates discovery/lists/popular/", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "C1" }]);
+      await client.getPopularWatchlists();
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/discovery/lists/popular/",
+        expect.objectContaining({ dataType: "pagination" }),
+      );
+    });
+
+    it("getWatchlistItems passes list_id and reads the items endpoint", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { object_id: "o1", object_type: "instrument", symbol: "AAPL" },
+      ]);
+      const items = await client.getWatchlistItems("L1");
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/discovery/lists/items/",
+        expect.objectContaining({ dataType: "results", params: { list_id: "L1" } }),
+      );
+      expect(items[0]?.symbol).toBe("AAPL");
+    });
+
+    it("getOptionWatchlist selects the option_strategy list", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "L1", allowed_object_types: ["instrument"] },
+        { id: "L2", allowed_object_types: ["option_strategy"] },
+      ]);
+      const opt = await client.getOptionWatchlist();
+      expect(opt?.id).toBe("L2");
+    });
+
+    it("resolveInstrumentBySymbol returns the exact single match", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "i1", symbol: "AAPL", state: "active", tradeable: true },
+      ]);
+      const inst = await client.resolveInstrumentBySymbol("aapl");
+      expect(inst.id).toBe("i1");
+    });
+
+    it("resolveInstrumentBySymbol ignores non-exact (prefix) search hits", async () => {
+      // findInstruments is a fuzzy search — the first hit may not be the ticker.
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "iX", symbol: "AAPLW", state: "active", tradeable: true },
+        { id: "i1", symbol: "AAPL", state: "active", tradeable: true },
+      ]);
+      const inst = await client.resolveInstrumentBySymbol("AAPL");
+      expect(inst.id).toBe("i1");
+    });
+
+    it("resolveInstrumentBySymbol throws when nothing matches", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "iX", symbol: "AAPLW" }]);
+      await expect(client.resolveInstrumentBySymbol("AAPL")).rejects.toThrow(/No instrument/);
+    });
+
+    it("resolveInstrumentBySymbol refuses to guess between ambiguous active listings", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "a", symbol: "AAPL", state: "active", tradeable: true },
+        { id: "b", symbol: "AAPL", state: "active", tradeable: true },
+      ]);
+      await expect(client.resolveInstrumentBySymbol("AAPL")).rejects.toThrow(/Ambiguous/);
+    });
+
+    it("resolveInstrumentBySymbol picks the single active listing when duplicates exist", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "old", symbol: "AAPL", state: "inactive", tradeable: false },
+        { id: "cur", symbol: "AAPL", state: "active", tradeable: true },
+      ]);
+      const inst = await client.resolveInstrumentBySymbol("AAPL");
+      expect(inst.id).toBe("cur");
+    });
+
+    it("updateWatchlistItems builds a single-list, single-operation write map", async () => {
+      mockRequestPost.mockResolvedValueOnce({});
+      await client.updateWatchlistItems("L1", "create", [
+        { object_type: "instrument", object_id: "i1" },
+        { object_type: "instrument", object_id: "i2" },
+      ]);
+      expect(mockRequestPost).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/midlands/lists/items/",
+        expect.objectContaining({
+          asJson: true,
+          payload: {
+            L1: [
+              { object_type: "instrument", object_id: "i1", operation: "create" },
+              { object_type: "instrument", object_id: "i2", operation: "create" },
+            ],
+          },
+        }),
+      );
+    });
+
+    it("updateWatchlistItems rejects an empty item list", async () => {
+      await expect(client.updateWatchlistItems("L1", "delete", [])).rejects.toThrow(/non-empty/);
+    });
+
+    it("getCurrencyPairs reads the nummus currency_pairs endpoint", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "cp1", asset_currency: { code: "BTC" } }]);
+      const pairs = await client.getCurrencyPairs();
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://nummus.robinhood.com/currency_pairs/",
+        expect.objectContaining({ dataType: "results" }),
+      );
+      expect(pairs[0]?.id).toBe("cp1");
+    });
+  });
+
+  describe("Phase 5 — long-tail writes + tax lots", () => {
+    beforeEach(async () => {
+      await client.restoreSession();
+    });
+
+    it("getEquityTaxLots resolves the symbol exactly and hits /tax_lots/open/{account}/{instrument}/", async () => {
+      mockRequestGet.mockResolvedValueOnce([{ id: "inst-mu", symbol: "MU" }]); // findInstruments (exact)
+      mockRequestGet.mockResolvedValueOnce([{ open_lot_id: "lot-1", term: "short_term" }]); // tax lots
+      const lots = await client.getEquityTaxLots("mu", { accountNumber: "ACCT-1" });
+      expect(lots[0]?.open_lot_id).toBe("lot-1");
+      expect(mockRequestGet).toHaveBeenLastCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/tax_lots/open/ACCT-1/inst-mu/",
+        expect.objectContaining({ dataType: "pagination" }),
+      );
+    });
+
+    it("getEquityTaxLots throws when the symbol has no exact instrument match", async () => {
+      mockRequestGet.mockResolvedValueOnce([]); // findInstruments empty
+      await expect(client.getEquityTaxLots("ZZZZ", { accountNumber: "ACCT-1" })).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it("followWatchlist POSTs an empty JSON body to /followers/{user_id}/", async () => {
+      mockRequestGet.mockResolvedValueOnce({ id: "user-1", username: "x" }); // getUserProfile
+      mockRequestPost.mockResolvedValueOnce({});
+      await client.followWatchlist("list-1");
+      expect(mockRequestPost).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/discovery/lists/list-1/followers/user-1/",
+        { payload: {}, asJson: true },
+      );
+    });
+
+    it("getUserId is cached across follow/unfollow (one /user/ read)", async () => {
+      mockRequestGet.mockResolvedValueOnce({ id: "user-1" }); // getUserProfile — once
+      mockRequestPost.mockResolvedValueOnce({});
+      mockRequestDelete.mockResolvedValueOnce({});
+      await client.followWatchlist("list-1");
+      await client.unfollowWatchlist("list-1");
+      const userReads = mockRequestGet.mock.calls.filter((c) =>
+        String(c[1]).endsWith("/user/"),
+      ).length;
+      expect(userReads).toBe(1);
+      expect(mockRequestDelete).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/discovery/lists/list-1/followers/user-1/",
+      );
+    });
+
+    it("getOptionWatchlistContracts sends load_all_attributes=false (options list rejects the default)", async () => {
+      mockRequestGet.mockResolvedValueOnce([
+        { id: "opt-list", allowed_object_types: ["option_strategy"] },
+      ]); // getWatchlists → getOptionWatchlist
+      mockRequestGet.mockResolvedValueOnce([{ object_id: "s1", strategy_code: "o_L1" }]); // items
+      const contracts = await client.getOptionWatchlistContracts();
+      expect(contracts[0]?.object_id).toBe("s1");
+      expect(mockRequestGet).toHaveBeenLastCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/discovery/lists/items/",
+        expect.objectContaining({
+          params: { list_id: "opt-list", load_all_attributes: "false" },
+        }),
+      );
+    });
+
+    it("quickAddOption mints a single-leg long option_strategy via quick_add", async () => {
+      mockRequestPost.mockResolvedValueOnce({});
+      await client.quickAddOption("opt-9", "long");
+      expect(mockRequestPost).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/discovery/lists/items/quick_add/",
+        {
+          payload: {
+            legs: [{ option_id: "opt-9", position_type: "long", ratio_quantity: 1 }],
+            object_type: "option_strategy",
+          },
+          asJson: true,
+        },
+      );
+    });
+
+    it("getOptionInstrumentById reads /options/instruments/{id}/", async () => {
+      mockRequestGet.mockResolvedValueOnce({ id: "opt-9", chain_symbol: "AAPL" });
+      const inst = await client.getOptionInstrumentById("opt-9");
+      expect(inst.id).toBe("opt-9");
+      expect(mockRequestGet).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://api.robinhood.com/options/instruments/opt-9/",
+      );
     });
   });
 });

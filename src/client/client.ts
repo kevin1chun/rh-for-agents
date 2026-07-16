@@ -5,6 +5,14 @@
  * Multi-account is first-class: account-scoped methods accept `accountNumber`.
  */
 
+import {
+  deriveOrderType,
+  evaluateEquityCollar,
+  type ReviewOrderType,
+  ThresholdServarsSchema,
+} from "../compute/order-review.js";
+import { computeFifoRealized, type Fill } from "../compute/realized-pnl.js";
+import { redactTokens, scrubAccountIdentifiers } from "../redact.js";
 import type { AuthState, LoginResult } from "./auth.js";
 import {
   logout as logoutFn,
@@ -12,7 +20,8 @@ import {
   restoreSessionFromToken,
 } from "./auth.js";
 import { NotFoundError, NotLoggedInError } from "./errors.js";
-import { requestGet, requestPost } from "./http.js";
+import { requestDelete, requestGet, requestPatch, requestPost } from "./http.js";
+import { SCANNER_FILTER_SPECS } from "./scanner-filter-specs.js";
 import { createSession, type RobinhoodSession } from "./session.js";
 import { createTokenStore, type TokenStore } from "./token-store.js";
 import type {
@@ -21,6 +30,7 @@ import type {
   CryptoPosition,
   CryptoQuote,
   Earnings,
+  EquityOrderReview,
   Fundamental,
   HistoricalDataPoint,
   Holding,
@@ -29,19 +39,36 @@ import type {
   Instrument,
   InvestmentProfile,
   News,
+  OptionAggregatePosition,
   OptionChain,
+  OptionHistorical,
   OptionInstrument,
   OptionMarketData,
   OptionOrder,
+  OptionOrderReview,
+  OptionOrderReviewLeg,
+  OptionPosition,
+  OptionWatchlistContract,
   Portfolio,
+  PortfolioLive,
   Position,
+  PriceBook,
   Quote,
   Rating,
+  RealizedPnlData,
+  RealizedPnlTrade,
+  Scan,
+  ScannerFilterSpec,
   ShortInterest,
   ShortInterestDaily,
   StockHistorical,
   StockOrder,
+  TaxLot,
+  UnifiedPortfolio,
   UserProfile,
+  Watchlist,
+  WatchlistItem,
+  WatchlistItemRef,
 } from "./types.js";
 import * as urls from "./urls.js";
 
@@ -57,6 +84,7 @@ export class RobinhoodClient {
   private authState: AuthState | null = null;
   private _loggedIn = false;
   private _indexCache: Map<string, IndexInstrument> | null = null;
+  private _userId: string | null = null;
 
   constructor(opts?: { tokenStore?: TokenStore; accessToken?: string; timeoutMs?: number }) {
     this.session = createSession(opts);
@@ -108,6 +136,17 @@ export class RobinhoodClient {
     return (accounts[0] as Account).url;
   }
 
+  /**
+   * Resolve a bare account number — for path-scoped hosts (bonfire) that key
+   * on the number itself rather than a URL. Falls back to the default account.
+   */
+  private async resolveAccountNumber(accountNumber?: string): Promise<string> {
+    if (accountNumber) return accountNumber;
+    const accounts = await this.getAccounts();
+    if (accounts.length === 0) throw new NotFoundError("No brokerage account found");
+    return (accounts[0] as Account).account_number;
+  }
+
   // ---------------------------------------------------------------------------
   // Accounts & Profiles
   // ---------------------------------------------------------------------------
@@ -138,6 +177,35 @@ export class RobinhoodClient {
     return (await requestGet(this.session, urls.portfolios(), {
       dataType: "indexzero",
     })) as Portfolio;
+  }
+
+  /**
+   * Unified portfolio snapshot (bonfire): total equity, per-bucket market
+   * values, and the full buying-power breakdown (equity/options/crypto). This
+   * is the data the official `get_portfolio` tool surfaces.
+   *
+   * Bonfire's unified endpoint only recognizes a user's default account
+   * number — every other real, valid account_number 404s here even though
+   * the sibling `portfolioLive`/`portfolios` endpoints accept it fine. Treat
+   * that 404 as "no unified snapshot for this account" rather than failing
+   * the whole call, so scoping to a non-default account doesn't break.
+   */
+  async getUnifiedPortfolio(accountNumber?: string): Promise<UnifiedPortfolio | null> {
+    this.requireAuth();
+    const acct = await this.resolveAccountNumber(accountNumber);
+    try {
+      return (await requestGet(this.session, urls.unifiedPortfolio(acct))) as UnifiedPortfolio;
+    } catch (e) {
+      if (e instanceof NotFoundError) return null;
+      throw e;
+    }
+  }
+
+  /** Live per-asset-class market values + cash (bonfire). */
+  async getPortfolioLive(accountNumber?: string): Promise<PortfolioLive> {
+    this.requireAuth();
+    const acct = await this.resolveAccountNumber(accountNumber);
+    return (await requestGet(this.session, urls.portfolioLive(acct))) as PortfolioLive;
   }
 
   async getUserProfile(): Promise<UserProfile> {
@@ -318,6 +386,70 @@ export class RobinhoodClient {
     })) as Earnings[];
   }
 
+  /**
+   * Market-wide earnings calendar. `rangeDays` selects the window: positive =
+   * upcoming (e.g. `7` → next 7 days), negative = recent look-back. Returns all
+   * reporting companies in that window, not scoped to one symbol.
+   */
+  async getEarningsCalendar(rangeDays = 7): Promise<Earnings[]> {
+    this.requireAuth();
+    const n = Math.trunc(rangeDays);
+    if (n === 0) throw new Error("rangeDays must be a non-zero integer (e.g. 7 or -7).");
+    return (await requestGet(this.session, urls.earnings(), {
+      dataType: "results",
+      params: { range: `${n}day` },
+    })) as Earnings[];
+  }
+
+  /**
+   * Level-2 price book (aggregated bid/ask depth) for a stock. Depth is
+   * populated during market hours; `asks`/`bids` are empty when closed.
+   */
+  async getPriceBook(symbol: string): Promise<PriceBook> {
+    this.requireAuth();
+    const sym = symbol.toUpperCase();
+    const instruments = await this.findInstruments(sym);
+    const inst = instruments.find((i) => i.symbol === sym) ?? instruments[0];
+    if (!inst) throw new NotFoundError(`No instrument found for symbol: ${symbol}`);
+    return (await requestGet(this.session, urls.priceBookSnapshot(inst.id))) as PriceBook;
+  }
+
+  /** Tradability flags for one or more symbols (sourced from `/instruments/`). */
+  async getTradability(symbols: string | string[]): Promise<
+    Array<{
+      symbol: string;
+      tradeable?: boolean;
+      tradability?: string;
+      rhs_tradability?: string | null;
+      fractional_tradability?: string | null;
+      short_selling_tradability?: string | null;
+      all_day_tradability?: string | null;
+      state?: string | null;
+      account_type_tradabilities?: Instrument["account_type_tradabilities"];
+    }>
+  > {
+    this.requireAuth();
+    const list = (Array.isArray(symbols) ? symbols : [symbols]).map((s) => s.toUpperCase());
+    const out: Array<{ symbol: string } & Partial<Instrument>> = [];
+    for (const sym of list) {
+      const instruments = await this.findInstruments(sym);
+      const inst = instruments.find((i) => i.symbol === sym) ?? instruments[0];
+      if (!inst) continue;
+      out.push({
+        symbol: inst.symbol,
+        tradeable: inst.tradeable,
+        tradability: inst.tradability,
+        rhs_tradability: inst.rhs_tradability,
+        fractional_tradability: inst.fractional_tradability,
+        short_selling_tradability: inst.short_selling_tradability,
+        all_day_tradability: inst.all_day_tradability,
+        state: inst.state,
+        account_type_tradabilities: inst.account_type_tradabilities,
+      });
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------------------
   // Short Interest
   // ---------------------------------------------------------------------------
@@ -448,6 +580,26 @@ export class RobinhoodClient {
     return resp.data?.[0]?.data ?? null;
   }
 
+  /** All tradable index instruments (SPX, NDX, VIX, RUT, …). */
+  async getIndexInstruments(): Promise<IndexInstrument[]> {
+    this.requireAuth();
+    return (await requestGet(this.session, urls.indexes(), {
+      dataType: "results",
+    })) as IndexInstrument[];
+  }
+
+  /** Current values for one or more index symbols. Unknown symbols are skipped. */
+  async getIndexQuotes(symbols: string | string[]): Promise<IndexValue[]> {
+    this.requireAuth();
+    const list = Array.isArray(symbols) ? symbols : [symbols];
+    const out: IndexValue[] = [];
+    for (const sym of list) {
+      const value = await this.getIndexValue(sym);
+      if (value) out.push(value);
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------------------
   // Options
   // ---------------------------------------------------------------------------
@@ -548,6 +700,71 @@ export class RobinhoodClient {
         this.session,
         urls.optionMarketData(opt.id),
       )) as OptionMarketData;
+      results.push(data);
+    }
+    return results;
+  }
+
+  /** Open option positions (per-leg). Pass `nonzero` to drop closed legs. */
+  async getOptionPositions(opts?: {
+    accountNumber?: string;
+    nonzero?: boolean;
+  }): Promise<OptionPosition[]> {
+    this.requireAuth();
+    const params: Record<string, string> = {};
+    if (opts?.nonzero) params.nonzero = "true";
+    if (opts?.accountNumber) params.account_number = opts.accountNumber;
+    return (await requestGet(this.session, urls.optionPositions(), {
+      dataType: "pagination",
+      params,
+    })) as OptionPosition[];
+  }
+
+  /** Aggregate option positions (grouped by strategy: spreads, condors, …). */
+  async getOptionAggregatePositions(opts?: {
+    accountNumber?: string;
+    nonzero?: boolean;
+  }): Promise<OptionAggregatePosition[]> {
+    this.requireAuth();
+    const params: Record<string, string> = {};
+    if (opts?.nonzero) params.nonzero = "true";
+    if (opts?.accountNumber) params.account_number = opts.accountNumber;
+    return (await requestGet(this.session, urls.optionAggregatePositions(), {
+      dataType: "pagination",
+      params,
+    })) as OptionAggregatePosition[];
+  }
+
+  /**
+   * Historical OHLC series for a specific option contract, identified by
+   * underlying symbol + expiration + strike + type. Returns one series per
+   * matching contract (normally one).
+   */
+  async getOptionHistoricals(
+    symbol: string,
+    expirationDate: string,
+    strikePrice: number,
+    optionType: string,
+    opts?: { span?: string; interval?: string; bounds?: string },
+  ): Promise<OptionHistorical[]> {
+    this.requireAuth();
+    const options = await this.findTradableOptions(symbol, {
+      expirationDate,
+      strikePrice,
+      optionType,
+    });
+    if (options.length === 0) return [];
+    const params: Record<string, string> = {
+      span: opts?.span ?? "day",
+      interval: opts?.interval ?? "hour",
+    };
+    if (opts?.bounds) params.bounds = opts.bounds;
+
+    const results: OptionHistorical[] = [];
+    for (const opt of options) {
+      const data = (await requestGet(this.session, urls.optionHistoricals(opt.id), {
+        params,
+      })) as OptionHistorical;
       results.push(data);
     }
     return results;
@@ -1000,6 +1217,640 @@ export class RobinhoodClient {
       results.push(await this.getInstrumentByUrl(url));
     }
     return results;
+  }
+
+  /**
+   * Resolve a ticker to its one exact instrument. Unlike `findInstruments` (a
+   * fuzzy search whose first hit may be a prefix or OTC/relisted duplicate of
+   * the same symbol), this filters to an exact symbol match and, on ambiguity,
+   * prefers the single active+tradable listing — so a watchlist or order write
+   * can never silently target the wrong security. Throws on no match or when
+   * the symbol remains ambiguous (never guesses).
+   */
+  async resolveInstrumentBySymbol(symbol: string): Promise<Instrument> {
+    this.requireAuth();
+    const sym = symbol.trim().toUpperCase();
+    if (!sym) throw new Error("symbol must be a non-empty string");
+    const hits = await this.findInstruments(sym);
+    const exact = hits.filter((i) => i.symbol?.toUpperCase() === sym);
+    if (exact.length === 0) {
+      throw new NotFoundError(`No instrument matches symbol "${sym}"`);
+    }
+    if (exact.length === 1) return exact[0] as Instrument;
+    const active = exact.filter(
+      (i) => i.state === "active" && (i.tradeable === true || i.tradability === "tradable"),
+    );
+    if (active.length === 1) return active[0] as Instrument;
+    throw new Error(
+      `Ambiguous symbol "${sym}": ${exact.length} instruments share this ticker` +
+        (active.length > 1 ? ` (${active.length} active)` : "") +
+        " — refusing to guess.",
+    );
+  }
+
+  /** All crypto currency pairs (id + asset code). Used to validate pair ids. */
+  async getCurrencyPairs(): Promise<Array<{ id: string; asset_currency?: { code?: string } }>> {
+    this.requireAuth();
+    return (await requestGet(this.session, urls.cryptoCurrencyPairs(), {
+      dataType: "results",
+    })) as Array<{ id: string; asset_currency?: { code?: string } }>;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Watchlists (discovery/lists reads · midlands/lists writes)
+  // ---------------------------------------------------------------------------
+
+  /** The user's own watchlists (metadata only; items via getWatchlistItems). */
+  async getWatchlists(): Promise<Watchlist[]> {
+    this.requireAuth();
+    return (await requestGet(this.session, urls.watchlistsDefault(), {
+      dataType: "results",
+    })) as Watchlist[];
+  }
+
+  /** Robinhood-curated lists the user can follow (paginated). */
+  async getPopularWatchlists(): Promise<Watchlist[]> {
+    this.requireAuth();
+    return (await requestGet(this.session, urls.watchlistsPopular(), {
+      dataType: "pagination",
+    })) as Watchlist[];
+  }
+
+  /**
+   * Items of a single watchlist, enriched by the API with symbol/name. Works
+   * for both user-owned and curated lists. A non-existent list id surfaces as
+   * a NotFoundError (the endpoint 404s); an empty list returns `[]`.
+   */
+  async getWatchlistItems(listId: string): Promise<WatchlistItem[]> {
+    this.requireAuth();
+    return (await requestGet(this.session, urls.watchlistItems(), {
+      dataType: "results",
+      params: { list_id: listId },
+    })) as WatchlistItem[];
+  }
+
+  /** The user's options watchlist (the list allowing `option_strategy`), or null. */
+  async getOptionWatchlist(): Promise<Watchlist | null> {
+    const lists = await this.getWatchlists();
+    return lists.find((l) => (l.allowed_object_types ?? []).includes("option_strategy")) ?? null;
+  }
+
+  /**
+   * Add or remove items on a single watchlist (write). Deliberately
+   * single-list, single-operation: the underlying `POST /midlands/lists/items/`
+   * body is a per-list-id map whose entries each carry their own operation — a
+   * bulk, mixed-mutation surface. This primitive builds that map internally
+   * from exactly one list id and one operation, so multi-list or mixed
+   * create/delete writes are never expressible from the client or MCP layer.
+   * Returns the API echo (a confirmation of the request, not the new state).
+   */
+  async updateWatchlistItems(
+    listId: string,
+    operation: "create" | "delete",
+    items: WatchlistItemRef[],
+  ): Promise<Record<string, unknown>> {
+    this.requireAuth();
+    if (items.length === 0) throw new Error("items must be a non-empty array");
+    const payload: Record<string, unknown> = {
+      [listId]: items.map((it) => ({
+        object_type: it.object_type,
+        object_id: it.object_id,
+        operation,
+      })),
+    };
+    return (await requestPost(this.session, urls.watchlistItemsWrite(), {
+      payload,
+      asJson: true,
+    })) as Record<string, unknown>;
+  }
+
+  /**
+   * Create a new (empty) watchlist (write). `POST /midlands/lists/` with the
+   * list object; the server fills the defaults (sort, colors, followed=false).
+   * We send only the user-set fields (name, optional description/emoji). Returns
+   * the created list (including its new `id`). Tier-2 write — the MCP layer
+   * carries the confirm-before-calling directive + honest annotations.
+   */
+  async createWatchlist(
+    displayName: string,
+    opts?: { displayDescription?: string; iconEmoji?: string },
+  ): Promise<Watchlist> {
+    this.requireAuth();
+    const name = displayName.trim();
+    if (!name) throw new Error("displayName must be a non-empty string");
+    const payload: Record<string, unknown> = {
+      display_name: name,
+      display_description: opts?.displayDescription ?? "",
+    };
+    if (opts?.iconEmoji != null) payload.icon_emoji = opts.iconEmoji;
+    return (await requestPost(this.session, urls.watchlistsWrite(), {
+      payload,
+      asJson: true,
+    })) as Watchlist;
+  }
+
+  /**
+   * Update a watchlist's own metadata (write) — name / description / emoji.
+   * `PATCH /midlands/lists/{id}/` with only the provided fields (a partial
+   * update; omitted fields are left unchanged). Does NOT touch items (use
+   * updateWatchlistItems for those). Returns the updated list. Tier-2 write.
+   */
+  async updateWatchlist(
+    listId: string,
+    updates: { displayName?: string; displayDescription?: string; iconEmoji?: string },
+  ): Promise<Watchlist> {
+    this.requireAuth();
+    const payload: Record<string, unknown> = {};
+    if (updates.displayName != null) {
+      const name = updates.displayName.trim();
+      if (!name) throw new Error("displayName, when provided, must be non-empty");
+      payload.display_name = name;
+    }
+    if (updates.displayDescription != null)
+      payload.display_description = updates.displayDescription;
+    if (updates.iconEmoji != null) payload.icon_emoji = updates.iconEmoji;
+    if (Object.keys(payload).length === 0) {
+      throw new Error("provide at least one of: displayName, displayDescription, iconEmoji");
+    }
+    return (await requestPatch(this.session, urls.watchlistWrite(listId), {
+      payload,
+    })) as Watchlist;
+  }
+
+  /**
+   * Delete one of the user's own watchlists (write). `DELETE /midlands/lists/{id}/`.
+   * Deliberately NOT exposed as an MCP tool — the official Trading MCP has no
+   * `delete_watchlist` (absence is the tier-3 gate, as with `delete_scan`). Kept
+   * on the client for API completeness and to make the create-watchlist
+   * integration test reversible.
+   */
+  async deleteWatchlist(listId: string): Promise<void> {
+    this.requireAuth();
+    await requestDelete(this.session, urls.watchlistWrite(listId));
+  }
+
+  /**
+   * The caller's own profile uuid (`GET /user/`.id), cached per session. Used to
+   * build the follow/unfollow URL — it is NOT a tool param and never surfaces in
+   * a result (follow/unfollow report declaratively). Fetched at most once.
+   */
+  private async getUserId(): Promise<string> {
+    if (this._userId) return this._userId;
+    const profile = await this.getUserProfile();
+    if (!profile.id) throw new Error("Could not resolve the current user's id from /user/.");
+    this._userId = profile.id;
+    return this._userId;
+  }
+
+  /**
+   * Wrap a follow/unfollow write so any thrown error can never carry the profile
+   * uuid: the request URL (which embeds `/followers/{uuid}/`) may appear in an
+   * APIError message. We redact it at the source in addition to the tool-layer
+   * output sanitizer (defense in depth).
+   */
+  private async runFollowWrite(fn: () => Promise<unknown>): Promise<void> {
+    try {
+      await fn();
+    } catch (e) {
+      throw new Error(redactTokens(e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  /**
+   * Follow a Robinhood-curated list (write). `POST /discovery/lists/{list_id}/
+   * followers/{user_id}/` with an EMPTY `{}` JSON body → 201 (a no-body POST 500s).
+   * The 201 echo is discarded; callers report declaratively. Tier-2 write.
+   */
+  async followWatchlist(listId: string): Promise<void> {
+    this.requireAuth();
+    const userId = await this.getUserId();
+    await this.runFollowWrite(() =>
+      requestPost(this.session, urls.watchlistFollower(listId, userId), {
+        payload: {},
+        asJson: true,
+      }),
+    );
+  }
+
+  /**
+   * Stop following a curated list (write). `DELETE /discovery/lists/{list_id}/
+   * followers/{user_id}/` → 204. The list itself is unchanged. Tier-2 write.
+   */
+  async unfollowWatchlist(listId: string): Promise<void> {
+    this.requireAuth();
+    const userId = await this.getUserId();
+    await this.runFollowWrite(() =>
+      requestDelete(this.session, urls.watchlistFollower(listId, userId)),
+    );
+  }
+
+  /**
+   * The single-leg option contracts on the user's options watchlist. Reads
+   * `discovery/lists/items/` with `load_all_attributes=false` — the options
+   * watchlist rejects the server's default (`true`) with HTTP 400, which is why
+   * the generic `getWatchlistItems` can't be used for it. Returns [] when there
+   * is no options watchlist. Each contract carries the minted `object_id`
+   * (strategy id) and `strategy_code` (`"{option_id}_L1"` for a long single leg).
+   */
+  async getOptionWatchlistContracts(): Promise<OptionWatchlistContract[]> {
+    this.requireAuth();
+    const list = await this.getOptionWatchlist();
+    if (!list?.id) return [];
+    return (await requestGet(this.session, urls.watchlistItems(), {
+      dataType: "results",
+      params: { list_id: list.id, load_all_attributes: "false" },
+    })) as OptionWatchlistContract[];
+  }
+
+  /**
+   * Fetch one option instrument by id — used to VALIDATE a raw option_id before a
+   * watchlist write (strict-on-writes: a bogus id must fail before it reaches the
+   * list). Throws if the id is not a real option instrument.
+   */
+  async getOptionInstrumentById(optionId: string): Promise<OptionInstrument> {
+    this.requireAuth();
+    return (await requestGet(this.session, urls.optionInstrument(optionId))) as OptionInstrument;
+  }
+
+  /**
+   * Add a single option contract to the options watchlist (write). `POST
+   * /discovery/lists/items/quick_add/` MINTS a single-leg `option_strategy` from
+   * the leg and auto-routes it to the options watchlist. NOT idempotent (a repeat
+   * mints a duplicate row) — callers must dedupe against
+   * `getOptionWatchlistContracts` first. `positionType` is "long" (only "long" is
+   * supported over this path today). Returns the minted item echo. Tier-2 write.
+   */
+  async quickAddOption(optionId: string, positionType: "long" = "long"): Promise<unknown> {
+    this.requireAuth();
+    return await requestPost(this.session, urls.watchlistItemQuickAdd(), {
+      payload: {
+        legs: [{ option_id: optionId, position_type: positionType, ratio_quantity: 1 }],
+        object_type: "option_strategy",
+      },
+      asJson: true,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tax lots (read)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Open tax lots for one equity holding — `GET /tax_lots/open/{account}/{instrument}/`.
+   * Each lot is a separate acquisition still held (quantity, cost basis, open date,
+   * long/short-term). The symbol is resolved by EXACT match (a fuzzy hit would
+   * return the wrong security's lots). All pages are collected internally; no
+   * pagination cursor is surfaced (a tax-lots `next` URL embeds the account number).
+   */
+  async getEquityTaxLots(symbol: string, opts: { accountNumber: string }): Promise<TaxLot[]> {
+    this.requireAuth();
+    const instrument = await this.resolveInstrumentBySymbol(symbol);
+    return (await requestGet(
+      this.session,
+      urls.equityTaxLotsOpen(opts.accountNumber, instrument.id),
+      {
+        dataType: "pagination",
+        params: { sort_type: "date", sort_direction: "DESC", fetch_max_abs_values: "true" },
+      },
+    )) as TaxLot[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scanners / screeners (Beacon service)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Catalog of scanner filter specs — the filters usable to build a scan
+   * (RSI/MACD/EMA/… + fundamentals + IV/OI) with their predicates, units, and
+   * supported lengths/intervals/plots. Account-agnostic.
+   *
+   * Served from an embedded static capture of the official Trading MCP's
+   * `get_scanner_filter_specs` output, NOT a live REST read: the Beacon
+   * filter-spec route isn't reachable with a standard token and its raw wire
+   * shape differs from this DTO (see `scanner-filter-specs.ts` for the full
+   * rationale and provenance). Async + auth-gated to match the rest of the
+   * (authenticated) scanner surface and the client's uniform method contract.
+   */
+  async getScannerFilterSpecs(): Promise<ScannerFilterSpec[]> {
+    this.requireAuth();
+    return [...SCANNER_FILTER_SPECS];
+  }
+
+  /**
+   * The user's saved scanners (screeners), as raw Beacon objects (camelCase
+   * wire fields). `GET api.robinhood.com/beacon/scans/` → `{scans: [...]}`;
+   * returns `[]` when the user has none. No params. The MCP layer derives the
+   * faithful official fields and is explicit about the ones it cannot reproduce
+   * — see `src/server/tools/scanners.ts`.
+   */
+  async getScans(): Promise<Scan[]> {
+    this.requireAuth();
+    const data = (await requestGet(this.session, urls.beaconScans())) as { scans?: unknown[] };
+    return (data.scans ?? []) as Scan[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Realized P&L (computed — no native equity/option REST endpoint)
+  // ---------------------------------------------------------------------------
+
+  /** Batch-resolve instrument ids → ticker symbols (chunked; account-agnostic). */
+  private async resolveSymbolsByInstrumentIds(ids: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    const unique = [...new Set(ids.filter(Boolean))];
+    const CHUNK = 50;
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK);
+      // `/instruments/?ids=` returns positional `null` entries for ids it can't resolve.
+      const results = (await requestGet(this.session, urls.instruments(), {
+        dataType: "pagination",
+        params: { ids: chunk.join(",") },
+      })) as Array<Instrument | null>;
+      for (const inst of results) {
+        if (inst?.id && inst.symbol) map.set(inst.id, inst.symbol);
+      }
+    }
+    return map;
+  }
+
+  /** Native crypto realized trades from nummus `gain_loss` (reshape, not recomputed). */
+  private async buildCryptoRealizedTrades(accountNumber?: string): Promise<RealizedPnlTrade[]> {
+    const orders = await this.getAllCryptoOrders({ accountNumber });
+    const realizing = orders.filter(
+      (o) => o.state === "filled" && o.gain_loss != null && o.gain_loss !== "",
+    );
+    if (realizing.length === 0) return [];
+    const pairs = await this.getCurrencyPairs();
+    const codeById = new Map<string, string>();
+    for (const p of pairs) {
+      if (p.id && p.asset_currency?.code) codeById.set(p.id, p.asset_currency.code);
+    }
+    const out: RealizedPnlTrade[] = [];
+    for (const o of realizing) {
+      const symbol = o.currency_pair_id ? codeById.get(o.currency_pair_id) : undefined;
+      const ts = o.last_transaction_at ?? o.updated_at ?? o.created_at;
+      if (!symbol || !ts) continue;
+      out.push({
+        symbol,
+        side: o.side ?? "sell",
+        quantity: Number(o.cumulative_quantity ?? o.quantity ?? 0),
+        price: Number(o.average_price ?? o.price ?? 0),
+        realizedGain: Number(o.gain_loss),
+        openedAt: null,
+        closedAt: ts,
+        assetClass: "crypto",
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Realized profit & loss, COMPUTED from order history. There is no standard-token REST
+   * endpoint for equity/option realized P&L (the app's PnL hub and the official MCP's
+   * "Wormhole" both compute it; `/wormhole/*` returns 404).
+   *
+   * - **Equity**: matched FIFO from filled `/orders/` — independent *economic* FIFO including
+   *   fees. This is NOT Robinhood's booked/tax-adjusted number: wash sales and non-FIFO lot
+   *   selection are not modeled, and only long round-trips are matched (a sell exceeding
+   *   accumulated buys — a short, a transfer-in, or an unadjusted split — is reported via
+   *   `overrunSymbols` rather than emitting a wrong figure). Splits are not basis-adjusted.
+   * - **Crypto**: native `gain_loss` on filled nummus orders (reshaped, not recomputed).
+   * - **Options**: not computed (expirations/assignments live in the options events stream,
+   *   not `/orders/`); pass `assetClasses` without `option`. The MCP layer notes the exclusion.
+   *
+   * Fetches the FULL order history regardless of any downstream time window, because a sell's
+   * cost basis can depend on buys arbitrarily far back. May be slow for large accounts.
+   */
+  async getRealizedPnl(opts?: {
+    accountNumber?: string;
+    assetClasses?: Array<"equity" | "crypto">;
+  }): Promise<RealizedPnlData> {
+    this.requireAuth();
+    const classes = new Set(opts?.assetClasses ?? ["equity", "crypto"]);
+    const trades: RealizedPnlTrade[] = [];
+    const overrunSymbols: string[] = [];
+
+    if (classes.has("equity")) {
+      const orders = await this.getAllStockOrders({ accountNumber: opts?.accountNumber });
+      const filled = orders.filter(
+        (o) => o.state === "filled" && Number(o.cumulative_quantity ?? 0) > 0 && o.instrument_id,
+      );
+      const symbolById = await this.resolveSymbolsByInstrumentIds(
+        filled.map((o) => o.instrument_id as string),
+      );
+      const fills: Fill[] = [];
+      for (const o of filled) {
+        const symbol = symbolById.get(o.instrument_id as string);
+        const side = o.side;
+        const qty = Number(o.cumulative_quantity ?? 0);
+        const price = Number(o.average_price ?? 0);
+        const ts = o.last_transaction_at ?? o.updated_at ?? o.created_at;
+        if (!symbol || (side !== "buy" && side !== "sell") || qty <= 0 || price <= 0 || !ts) {
+          continue;
+        }
+        const fees =
+          Number(o.fees ?? 0) +
+          Number(o.sec_fees ?? 0) +
+          Number(o.taf_fees ?? 0) +
+          Number(o.cat_fees ?? 0);
+        fills.push({ symbol, side, quantity: qty, price, fees, timestamp: ts });
+      }
+      const result = computeFifoRealized(fills);
+      overrunSymbols.push(...result.overrunSymbols);
+      for (const t of result.trades) {
+        // Map only the declared RealizedPnlTrade fields (drop compute-internal
+        // proceeds/costBasis) so the object matches its type exactly.
+        trades.push({
+          symbol: t.symbol,
+          side: t.side,
+          quantity: t.quantity,
+          price: t.price,
+          realizedGain: t.realizedGain,
+          openedAt: t.openedAt,
+          closedAt: t.closedAt,
+          assetClass: "equity",
+        });
+      }
+    }
+
+    if (classes.has("crypto")) {
+      trades.push(...(await this.buildCryptoRealizedTrades(opts?.accountNumber)));
+    }
+
+    trades.sort((a, b) => (a.closedAt < b.closedAt ? -1 : a.closedAt > b.closedAt ? 1 : 0));
+    const totalRealizedGain = trades.reduce((s, t) => s + t.realizedGain, 0);
+    return { trades, overrunSymbols: [...new Set(overrunSymbols)].sort(), totalRealizedGain };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Order review (Phase 3) — pre-trade simulation. Read-only: NOTHING is placed.
+  // Composed from the app's own preflight GETs (order_checks/presubmit_data,
+  // options collateral) plus a live quote; the price collar is reproduced from
+  // the account's live `threshold_servars`. Account identifiers read from any
+  // response body are scrubbed — only a caller-supplied account_number is ever
+  // echoed (by the MCP layer).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Simulate an equity order without placing it: echoes the order, attaches the
+   * live quote (for cost visibility), and reproduces Robinhood's
+   * "extremely marketable / unmarketable" price collar from the account's live
+   * presubmit thresholds. `order_checks` is `{}` only when the collar ran and
+   * found no problem — `evaluated_checks`/`not_evaluated_checks` say which
+   * criteria actually ran, so an empty `order_checks` is never read as a blanket
+   * "all clear". The servars are runtime-parsed; on a shape change the affected
+   * criteria degrade to `not_evaluated` (never a false pass).
+   */
+  async reviewEquityOrder(opts: {
+    symbol: string;
+    side: "buy" | "sell";
+    quantity: number;
+    limitPrice?: number;
+    stopPrice?: number;
+    accountNumber?: string;
+  }): Promise<EquityOrderReview> {
+    this.requireAuth();
+    const sym = opts.symbol.trim().toUpperCase();
+    if (!sym) throw new Error("symbol must be a non-empty string");
+    if (!(opts.quantity > 0) || !Number.isFinite(opts.quantity)) {
+      throw new Error("quantity must be a positive finite number");
+    }
+    const inst = await this.resolveInstrumentBySymbol(sym);
+    const accountNumber = await this.resolveAccountNumber(opts.accountNumber);
+
+    const [presubmit, quotes] = await Promise.all([
+      requestGet(this.session, urls.equityOrderCheckPresubmit(), {
+        params: { account_number: accountNumber, instrument: inst.id },
+      }) as Promise<Record<string, unknown>>,
+      this.getQuotes([sym]),
+    ]);
+
+    const quote = quotes[0] ?? null;
+    // Runtime-parse the collar servars: a silent shape change must not become a
+    // false "no alert". On failure the collar sees no thresholds → not_evaluated.
+    const parsed = ThresholdServarsSchema.safeParse(presubmit.threshold_servars ?? {});
+    const thresholds = parsed.success ? parsed.data : {};
+
+    const orderType: ReviewOrderType = deriveOrderType(opts.limitPrice, opts.stopPrice);
+    const collar = evaluateEquityCollar({
+      side: opts.side,
+      orderType,
+      limitPrice: opts.limitPrice ?? null,
+      stopPrice: opts.stopPrice ?? null,
+      refs: {
+        lastTradePrice: quote?.last_trade_price != null ? Number(quote.last_trade_price) : null,
+        bidPrice: quote?.bid_price != null ? Number(quote.bid_price) : null,
+        askPrice: quote?.ask_price != null ? Number(quote.ask_price) : null,
+      },
+      thresholds,
+    });
+
+    const notEvaluated = [...collar.notEvaluated];
+    if (!parsed.success) {
+      notEvaluated.push("price_collar (presubmit threshold_servars failed validation)");
+    }
+
+    return {
+      symbol: sym,
+      side: opts.side,
+      type: orderType,
+      quantity: opts.quantity,
+      limit_price: opts.limitPrice ?? null,
+      stop_price: opts.stopPrice ?? null,
+      order_checks: collar.orderChecks,
+      evaluated_checks: collar.evaluated,
+      not_evaluated_checks: notEvaluated,
+      quote,
+      quote_timestamp: quote?.updated_at ?? null,
+    };
+  }
+
+  /**
+   * Simulate a single- or multi-leg option order without placing it: echoes the
+   * order with per-leg market data (mark/bid/ask/greeks) and the collateral the
+   * order would require. The reproduced check set is deliberately thin (options
+   * have no simple last-trade collar) — `not_evaluated_checks` names what was
+   * NOT run so nothing is read as a blanket clearance. Collateral has its
+   * account identifiers scrubbed.
+   */
+  async reviewOptionOrder(opts: {
+    symbol: string;
+    legs: Array<{
+      expirationDate: string;
+      strike: number;
+      optionType: "call" | "put";
+      side: "buy" | "sell";
+      positionEffect: "open" | "close";
+      ratioQuantity?: number;
+    }>;
+    price: number;
+    quantity: number;
+    direction: "debit" | "credit";
+    accountNumber?: string;
+  }): Promise<OptionOrderReview> {
+    this.requireAuth();
+    const sym = opts.symbol.trim().toUpperCase();
+    if (!sym) throw new Error("symbol must be a non-empty string");
+    if (opts.legs.length === 0) throw new Error("at least one leg is required");
+    if (!(opts.quantity > 0) || !Number.isFinite(opts.quantity)) {
+      throw new Error("quantity must be a positive finite number");
+    }
+    const accountNumber = await this.resolveAccountNumber(opts.accountNumber);
+    const chain = await this.getChains(sym);
+
+    // Per-leg market data (best-effort; a leg that won't resolve stays null).
+    const legs: OptionOrderReviewLeg[] = [];
+    for (const leg of opts.legs) {
+      let market: OptionMarketData | null = null;
+      try {
+        const md = await this.getOptionMarketData(
+          sym,
+          leg.expirationDate,
+          leg.strike,
+          leg.optionType,
+        );
+        market = md[0] ?? null;
+      } catch {
+        market = null;
+      }
+      legs.push({
+        expiration_date: leg.expirationDate,
+        strike: leg.strike,
+        option_type: leg.optionType,
+        side: leg.side,
+        position_effect: leg.positionEffect,
+        ratio_quantity: leg.ratioQuantity ?? 1,
+        market_data: market,
+      });
+    }
+
+    // Collateral for the chain (scrub account identifiers before surfacing).
+    let collateral: Record<string, unknown> | null = null;
+    if (chain.id) {
+      try {
+        const raw = (await requestGet(this.session, urls.optionChainCollateral(chain.id), {
+          params: { account_number: accountNumber },
+        })) as Record<string, unknown>;
+        collateral = scrubAccountIdentifiers(raw);
+      } catch {
+        collateral = null;
+      }
+    }
+
+    return {
+      symbol: sym,
+      direction: opts.direction,
+      price: opts.price,
+      quantity: opts.quantity,
+      legs,
+      collateral,
+      order_checks: {},
+      evaluated_checks: [],
+      not_evaluated_checks: [
+        "price_collar (option limit-price collar is not reproduced — options have no simple last-trade collar)",
+        "max_contracts / wide_bid_ask_spread (option presubmit thresholds not applied in this build)",
+      ],
+      quote_timestamp: null,
+    };
   }
 }
 

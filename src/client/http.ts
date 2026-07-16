@@ -87,6 +87,22 @@ export async function requestPost(
   return response.json();
 }
 
+export async function requestPatch(
+  session: RobinhoodSession,
+  url: string,
+  opts?: { payload?: Record<string, unknown>; timeoutMs?: number },
+): Promise<unknown> {
+  const response = await session.patch(url, opts?.payload, {
+    timeoutMs: opts?.timeoutMs,
+  });
+  await raiseForStatus(response);
+
+  if (response.status === 204) {
+    return {};
+  }
+  return response.json();
+}
+
 export async function requestDelete(session: RobinhoodSession, url: string): Promise<unknown> {
   const response = await session.delete(url);
   await raiseForStatus(response);

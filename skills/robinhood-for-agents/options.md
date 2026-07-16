@@ -47,7 +47,8 @@ const data = await rh.getOptionMarketData("AAPL", "2026-04-17", 200, "call");
 
 ### Open Option Positions
 ```typescript
-const positions = await rh.getOpenOptionPositions();
+const positions = await rh.getOptionPositions();          // per-leg
+const strategies = await rh.getOptionAggregatePositions(); // grouped by strategy (spreads, condors)
 ```
 
 ## Index Options (SPX, NDX, VIX, RUT, XSP)
