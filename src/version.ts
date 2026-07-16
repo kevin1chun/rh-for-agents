@@ -6,4 +6,4 @@
  * `__tests__/version.test.ts` fails the build if these ever diverge, so the
  * stale-version drift that accumulated across earlier releases can't recur.
  */
-export const VERSION = "0.9.0";
+export const VERSION = "1.0.0";
