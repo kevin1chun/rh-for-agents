@@ -170,6 +170,9 @@ declare function runVerifier(
   request: unknown,
 ): Promise<ExternalVerdict | null>;
 
+// App helper: assemble the request body in the verifier's expected format.
+declare function buildRequest(credential: string): unknown;
+
 class ExternalProcessVerifier implements AgentVerifier {
   // agentId / permissions are resolved from your own trusted mapping, keyed
   // off the credential. The external process proves authorization; it is not
