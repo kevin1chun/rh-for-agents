@@ -157,38 +157,39 @@ A custom verifier does not have to implement crypto in this codebase. The same `
 ```typescript
 import type { AgentVerifier, VerificationResult } from "./gateway";
 
-type ExternalVerifierVerdict = {
-  decision: "allow" | "deny";
-  agentId?: string;
-  permissions?: string[];
-};
+// The external verifier's wire contract: one JSON verdict on stdout.
+// It answers allow/deny only; it does not return app identity or roles.
+type ExternalVerdict = { verdict: "allow" | "deny" };
 
-// App helper: spawn the command, write one JSON request to stdin,
-// read one bounded JSON verdict from stdout, enforce timeout, and return null on error.
+// App helper: spawn the command, write one JSON request to stdin, read one
+// bounded JSON verdict from stdout, enforce a timeout, and return null on any
+// error (which the caller treats as deny).
 declare function runVerifier(
   command: string,
   args: string[],
-  request: { bundle: string; action: string },
-): Promise<ExternalVerifierVerdict | null>;
+  request: unknown,
+): Promise<ExternalVerdict | null>;
 
 class ExternalProcessVerifier implements AgentVerifier {
+  // agentId / permissions are resolved from your own trusted mapping, keyed
+  // off the credential. The external process proves authorization; it is not
+  // the source of identity or role for this gateway.
+  constructor(
+    private resolve: (credential: string) => { agentId: string; permissions: string[] } | null,
+  ) {}
+
   async verify(credential: string): Promise<VerificationResult> {
-    const verdict = await runVerifier("bolyra", ["verify"], {
-      bundle: credential,
-      action: "tools/call",
-    });
+    const identity = this.resolve(credential);
+    if (!identity) return { verified: false, agentId: "", permissions: [] };
 
-    if (verdict?.decision !== "allow") return { verified: false };
+    const result = await runVerifier("bolyra", ["verify"], buildRequest(credential));
+    if (result?.verdict !== "allow") return { verified: false, agentId: "", permissions: [] };
 
-    return {
-      verified: true,
-      agentId: verdict.agentId,
-      permissions: verdict.permissions,
-    };
+    return { verified: true, agentId: identity.agentId, permissions: identity.permissions };
   }
 }
 ```
 
-An open, host-agnostic version of this contract exists as [External Verifier Contract v1](https://github.com/bolyra/bolyra/blob/main/spec/external-verifier-contract-v1.md), with conformance vectors that exercise the failure modes above (including deliberately misbehaving verifiers to test a host's fail-closed handling), JS and Rust reference hosts, and `bolyra verify` as one spawnable implementation. Verifiers self-describe a `kind` (`classical | zk | external`), so a host can start with classical signature verification and adopt zero-knowledge verification later without changing this subprocess integration.
+The request written to stdin is the verifier's own format, not this gateway's. For [External Verifier Contract v1](https://github.com/bolyra/bolyra/blob/main/spec/external-verifier-contract-v1.md) it is a single JSON object carrying the proof bundle, the action being authorized, and a timestamp (see the spec for exact field names). That contract defines one JSON request in, one fail-closed verdict out, with conformance vectors that exercise the failure modes above (including deliberately misbehaving verifiers to test a host's fail-closed handling), JS and Rust reference hosts, and `bolyra verify` as one spawnable implementation. Verifiers self-describe a `kind` (`classical | zk | external`), so a host can start with classical signature verification and adopt zero-knowledge verification later without changing this subprocess integration.
 
 This composes with the shared-secret and JWT options above rather than replacing them: use those when verification logic is simple enough to live in-process, and the external shape when you want the verification surface out of the gateway entirely.
