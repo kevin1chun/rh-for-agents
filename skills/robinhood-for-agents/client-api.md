@@ -5,19 +5,67 @@ Methods from `robinhood-for-agents` for programmatic access without MCP.
 ## Quick Start
 
 ```typescript
-import { RobinhoodClient, getClient } from "robinhood-for-agents";
+import { RobinhoodClient, getClient, TokenExpiredError } from "robinhood-for-agents";
 
 const rh = getClient(); // singleton
+await rh.restoreSession();  // loads tokens + wires refresh — does NOT validate them
+```
+
+`restoreSession()` reads the token store and registers both refresh paths (a pre-request hook that renews ~24h before expiry, plus a 401 handler). It proves nothing about whether the tokens still work — the first real call is where a dead session surfaces, as a `TokenExpiredError`. To verify up front, probe:
+
+```typescript
 await rh.restoreSession();
+await rh.getAccountProfile();  // throws TokenExpiredError if the session is dead
 ```
 
 All methods are `async`. Multi-account is first-class: account-scoped methods accept `accountNumber`.
+
+## Errors & Session Expiry
+
+```
+RobinhoodError
+├── AuthenticationError
+│   └── TokenExpiredError     // 401 that survived automatic refresh
+├── NotLoggedInError
+└── APIError                  // every other non-2xx
+    ├── RateLimitError        // 429
+    └── NotFoundError         // 404
+```
+
+Catch `AuthenticationError` (or `TokenExpiredError` specifically) for auth failures — **not** `APIError`. A 401 is no longer surfaced as a bare `APIError: HTTP 401`: `TokenExpiredError` is thrown only after automatic refresh has already run and failed, so it means "re-authenticate", never "retry".
+
+```typescript
+import { getClient, AuthenticationError, TokenExpiredError, APIError } from "robinhood-for-agents";
+
+try {
+  await rh.getAccountProfile();
+} catch (e) {
+  if (e instanceof TokenExpiredError) {
+    // refresh already tried and failed — only a browser login fixes this
+    // (`bunx robinhood-for-agents onboard`, or the robinhood_browser_login MCP tool)
+  } else if (e instanceof AuthenticationError) {
+    // no tokens in the store at all — same remedy
+  } else if (e instanceof APIError) {
+    // a real API error (404/429/5xx) — the session is fine
+  } else {
+    // network/transient — the session may well be fine; retry before re-authenticating
+  }
+}
+```
+
+**How refresh works.** `restoreSession()` registers two paths: a pre-request hook that renews ~24h before the access token expires (using `TokenData.expires_at`, derived from the JWT `exp` claim), and an `onUnauthorized` handler that renews on a 401. Concurrent 401s share a single refresh attempt, and attempts are rate-limited to one per 5s.
+
+**Single-use rotation — the concurrency rule.** Robinhood rotates refresh tokens: each renewal returns a new refresh token, instantly kills the old one, and revokes the previous access token. Two clients on one session (an MCP server plus a `bun -e` script, or two Claude Code sessions) will poison each other. When a refresh is rejected the client re-reads the token store and adopts a token another process may have persisted, so it usually self-heals — but there is **no cross-process lock**. Drive a session from one process at a time.
+
+**Idle sessions still lapse.** Proactive renewal only runs while the client is making requests. Leave a session idle longer than the refresh-token lifetime and the chain lapses — a new browser login is required. Access-token TTL varies (~6-8.5 days observed); never hard-code a number.
+
+**No-refresh mode.** A client constructed with a direct `accessToken` registers neither refresh path — the first 401 raises `TokenExpiredError` immediately.
 
 ## MCP Tool → Client Method Mapping
 
 | MCP Tool | Client Method |
 |----------|--------------|
-| `robinhood_check_session` | `restoreSession()` |
+| `robinhood_check_session` | `restoreSession()` + a probe call (`getAccountProfile()`) — `restoreSession()` alone does not validate the tokens |
 | `robinhood_get_account` | `getAccountProfile(accountNumber?)` |
 | `robinhood_get_accounts` | `getAccounts(opts?)` |
 | `robinhood_get_portfolio` | `buildHoldings(opts?)` |

@@ -29,6 +29,14 @@ export interface TokenData {
   device_token: string;
   account_hint?: string;
   saved_at: number;
+  /**
+   * Unix seconds at which `access_token` expires.
+   *
+   * Optional so that tokens persisted before this field existed still load and
+   * validate — they simply fall back to reactive (401-triggered) refresh until
+   * the next successful refresh backfills it.
+   */
+  expires_at?: number;
 }
 
 export function isTokenData(data: unknown): data is TokenData {
@@ -43,9 +51,47 @@ export function isTokenData(data: unknown): data is TokenData {
   );
 }
 
-/** Add `saved_at` timestamp if missing. */
+/** Read the `exp` claim from a JWT access token without verifying its signature. */
+function jwtExp(accessToken: string): number | undefined {
+  const [, encodedPayload, signature] = accessToken.split(".");
+  if (!encodedPayload || !signature) return undefined;
+  try {
+    const payload: unknown = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    if (typeof payload !== "object" || payload === null) return undefined;
+    const exp = (payload as Record<string, unknown>).exp;
+    return typeof exp === "number" && Number.isFinite(exp) ? exp : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve when an access token expires, in unix seconds.
+ *
+ * Prefers the JWT `exp` claim — it is authoritative and present on tokens from
+ * both the browser-login capture and the refresh grant. Falls back to
+ * `issuedAt + expiresIn` when the token is not a decodable JWT.
+ */
+export function deriveExpiresAt(
+  accessToken: string,
+  opts?: { expiresIn?: number; issuedAt?: number },
+): number | undefined {
+  const claim = jwtExp(accessToken);
+  if (claim !== undefined) return claim;
+  if (opts?.expiresIn !== undefined && Number.isFinite(opts.expiresIn)) {
+    return (opts.issuedAt ?? Date.now() / 1000) + opts.expiresIn;
+  }
+  return undefined;
+}
+
+/** Add `saved_at` timestamp if missing, deriving `expires_at` when not supplied. */
 export function withTimestamp(tokens: Omit<TokenData, "saved_at">): TokenData {
-  return { ...tokens, saved_at: Date.now() / 1000 };
+  const saved_at = Date.now() / 1000;
+  return {
+    ...tokens,
+    saved_at,
+    expires_at: tokens.expires_at ?? deriveExpiresAt(tokens.access_token, { issuedAt: saved_at }),
+  };
 }
 
 // ---------------------------------------------------------------------------

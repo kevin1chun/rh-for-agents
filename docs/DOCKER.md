@@ -1,6 +1,6 @@
 # Docker (OpenClaw, etc.)
 
-**TL;DR** -- Run `onboard` on the host to login and export an encrypted token file. Mount the file into the container and pass the encryption key as an env var.
+**TL;DR** -- Run `onboard` on the host to login and export an encrypted token file. Mount the file into the container **read-write** (the SDK rotates and rewrites tokens) and pass the encryption key as an env var.
 
 ---
 
@@ -60,7 +60,7 @@ services:
       - ./tokens.enc:/secrets/tokens.enc:rw
 ```
 
-> **Note:** The volume must be mounted `:rw` (read-write), not `:ro`. When the access token expires, the SDK refreshes it and writes the updated tokens back to the encrypted file. A read-only mount will cause token refresh to fail silently, and the container will lose API access once the current token expires.
+> **Note:** The volume must be mounted `:rw` (read-write), not `:ro`. The SDK renews the access token ahead of expiry (and again on a 401) and writes the updated tokens back to the encrypted file. Every refresh **rotates** the refresh token — Robinhood invalidates the old one the instant the new one is issued — so this file is not a cache, it is the only durable copy. With a read-only mount the running container keeps working off its in-memory token and then finds nothing valid on restart, requiring a fresh `onboard` on the host. Failed writes are logged as `CRITICAL` on stderr; alert on that line.
 
 #### docker run
 
@@ -84,6 +84,30 @@ $ cat /secrets/tokens.enc
 {"iv":"...","tag":"...","ciphertext":"..."}
 ```
 
+### 4. One writer per token file
+
+Robinhood enforces **single-use refresh-token rotation**: each refresh returns a new refresh token and instantly invalidates the previous one. There is no cross-process lock, so two containers sharing one `tokens.enc` will race — the loser refreshes with a token the winner already spent and gets a 401 `invalid_grant`. The SDK recovers by re-reading the file and adopting whatever the other process persisted, but that is a safety net, not a supported topology.
+
+- Do **not** scale a service that shares one `tokens.enc` to more than one replica
+- Do **not** run the host SDK against the keychain and a container against an export of the same token family at the same time
+- Give each independent deployment its own browser login and its own token file
+
+### Re-authenticating a container
+
+A container can never re-authenticate itself: browser login needs Chrome on the host. Renewal keeps the chain alive only while the SDK is actually making requests, so a container that sits idle longer than the refresh-token lifetime will lapse and need a new token file.
+
+Symptoms: API calls raise `TokenExpiredError` ("session expired and could not be refreshed"), and `robinhood_check_session` reports `expired`. (`unknown` means a transient/network failure — retry before re-onboarding.)
+
+Recovery:
+
+```bash
+# On the host
+npx robinhood-for-agents onboard   # re-login, re-export tokens.enc
+docker compose up -d --force-recreate agent
+```
+
+If you rotated the encryption key during onboard, update `ROBINHOOD_TOKEN_KEY` too.
+
 ---
 
 ## How it works
@@ -98,14 +122,14 @@ $ cat /secrets/tokens.enc
 │                               │    │                                    │
 │                               │    │ SDK loads file → decrypts with key │
 │                               │    │ → injects Bearer header on calls   │
-│                               │    │ → re-encrypts on token refresh     │
+│                               │    │ → renews early, re-encrypts on save│
 └───────────────────────────────┘    └────────────────────────────────────┘
 ```
 
 The `EncryptedFileTokenStore`:
 - Decrypts the token file on `restoreSession()` using `ROBINHOOD_TOKEN_KEY`
 - Injects the Bearer header on every Robinhood API request
-- On 401, refreshes the token and writes re-encrypted tokens back to the file
+- Renews the token 24h before it expires (pre-request hook) and again on a 401, writing re-encrypted tokens back to the file each time — each write carries a newly rotated refresh token
 - Uses AES-256-GCM with a random IV per write (authenticated encryption)
 
 ---
@@ -115,7 +139,7 @@ The `EncryptedFileTokenStore`:
 Kill the container. Once it is gone:
 - No process can read the encryption key from its env vars
 - The encrypted file on the host is useless without the key
-- No further token refreshes will occur, so the current access token expires naturally (~8.5 days after it was issued)
+- No further token refreshes will occur, so the current access token expires naturally — its exact lifetime varies (roughly 6–8.5 days from issue), so do not treat any single figure as a guaranteed revocation window
 
 To revoke immediately, delete the encrypted file on the host:
 

@@ -4,6 +4,8 @@
 
 Watchlists are identified by **list_id (UUID)** — there is no "default list" shortcut, by design (so a write can never hit the wrong list).
 
+`restoreSession()` loads tokens but does not validate them. A `TokenExpiredError` on a write means the write did **not** land — re-authenticate via [setup.md](setup.md), re-read the list to confirm its actual state, then redo only the missing operation. This matters most for the two-call move (remove then add): if the second call dies on auth, the symbol is off the source list and not yet on the target.
+
 ## Step 1: Look Up the List
 
 ```bash

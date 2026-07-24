@@ -56,6 +56,14 @@ export class RobinhoodSession {
    */
   onUnauthorized: (() => Promise<string | null>) | null = null;
 
+  /**
+   * Called before each request. Should renew the access token if it is close
+   * to expiring and update it via `setAccessToken`. Failures are swallowed —
+   * a proactive refresh that does not work simply falls through to the
+   * reactive `onUnauthorized` path.
+   */
+  ensureFreshToken: (() => Promise<void>) | null = null;
+
   constructor(opts?: { timeoutMs?: number }) {
     this.headers = { ...DEFAULT_HEADERS };
     this.timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -145,27 +153,51 @@ export class RobinhoodSession {
     });
   }
 
+  /** Return a copy of `init` with the Authorization header re-stamped. */
+  private withAuthHeader(
+    init: RequestInit & { signal: AbortSignal },
+    token: string,
+  ): RequestInit & { signal: AbortSignal } {
+    const headers =
+      init.headers instanceof Headers
+        ? Object.fromEntries(init.headers)
+        : { ...(init.headers as Record<string, string>) };
+    headers.Authorization = `Bearer ${token}`;
+    return { ...init, headers };
+  }
+
   /**
-   * Fetch with single-retry on 401. If onUnauthorized is set and the first
-   * request returns 401, refresh the token and retry once.
+   * Fetch with proactive renewal plus single-retry on 401.
+   *
+   * Callers bake the Authorization header before calling this, so a proactive
+   * refresh that swaps the token must re-stamp the header or the request would
+   * still go out with the stale one.
    */
   private async fetchWithRetry(
     url: string,
     init: RequestInit & { signal: AbortSignal },
   ): Promise<Response> {
-    const resp = await safeFetch(url, init);
+    let req = init;
+
+    if (this.ensureFreshToken) {
+      const before = this.accessToken;
+      try {
+        await this.ensureFreshToken();
+      } catch {
+        // Proactive renewal is best-effort; fall through to the 401 path.
+      }
+      if (this.accessToken && this.accessToken !== before) {
+        req = this.withAuthHeader(req, this.accessToken);
+      }
+    }
+
+    const resp = await safeFetch(url, req);
 
     if (resp.status === 401 && this.onUnauthorized) {
       const newToken = await this.onUnauthorized();
       if (newToken) {
         this.accessToken = newToken;
-        // Rebuild headers with new token
-        const headers =
-          init.headers instanceof Headers
-            ? Object.fromEntries(init.headers)
-            : { ...(init.headers as Record<string, string>) };
-        headers.Authorization = `Bearer ${newToken}`;
-        return safeFetch(url, { ...init, headers });
+        return safeFetch(url, this.withAuthHeader(req, newToken));
       }
     }
 

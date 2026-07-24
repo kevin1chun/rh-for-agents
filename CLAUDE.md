@@ -59,16 +59,24 @@ await rh.restoreSession();
 - All methods are `async` (native `fetch` under the hood)
 - Multi-account is first-class: every account-scoped method accepts `accountNumber`
 - Session cached in OS keychain via `Bun.secrets` (macOS Keychain Services) — no plaintext fallback, no tokens on disk
-- Token refresh via `refresh_token` + `device_token` when access token expires
-- Proper exceptions: `AuthenticationError`, `APIError`
+- Token refresh via `refresh_token` + `device_token` — **proactive** (pre-request hook renews 24h before `expires_at`, `REFRESH_SKEW_SEC` in `src/client/auth.ts`) *and* reactive (on 401). Refresh tokens are single-use: every refresh rotates them and kills the previous one
+- Proper exceptions: `AuthenticationError`, `TokenExpiredError` (subclass — a 401 that survived the refresh retry; means re-login), `APIError`
 - **Do NOT use `phoenix.robinhood.com`** — it rejects TLS. Use `api.robinhood.com` endpoints only.
 
 ## Authentication
 - Browser login (`robinhood_browser_login`) opens Google Chrome via playwright-core's `channel: "chrome"` (`src/server/browser-auth.ts`). Chrome must be installed — there is no Brave/Chromium auto-detection, `BROWSER_PATH` override, or `--chrome` CLI flag implemented yet, despite earlier docs suggesting otherwise.
 - Purely passive — Playwright intercepts `/oauth2/token` network traffic, never interacts with the DOM
-- Request body (JSON) → captures `device_token`; Response → captures `access_token` + `refresh_token`
+- Request body (JSON) → captures `device_token`; Response → captures `access_token` + `refresh_token`; `withTimestamp()` stamps `saved_at` and derives `expires_at` from the JWT `exp` claim
 - Tokens stored in OS keychain (`KeychainTokenStore`, default) or encrypted file (`EncryptedFileTokenStore`, for Docker/headless)
-- `restoreSession()` loads tokens from the configured `TokenStore`, sets Bearer auth on the session, and registers automatic 401 token refresh
+- `restoreSession()` loads tokens from the configured `TokenStore`, sets Bearer auth on the session, registers the 401 refresh callback (`session.onUnauthorized`) **and** the pre-request renewal hook (`session.ensureFreshToken`), and backfills `expires_at` on entries persisted before that field existed
+- `TokenData.expires_at` (unix seconds, **optional** for back-compat with already-stored entries) is derived by `deriveExpiresAt()` in `token-store.ts` — JWT `exp` claim first, `issuedAt + expires_in` as fallback
+- Access-token TTL **varies** (~5.9d/6.9d on browser login; 8.5d then 6.1d on refresh grants). **Never hardcode a lifetime** — read `expires_at`
+- Rotation is enforced server-side and single-use: each refresh returns a new `refresh_token` and instantly kills the old one (401 `invalid_grant`); issuing a new token family also revokes the previous *access* token
+- **No cross-process lock.** Two clients refreshing concurrently poison the loser. When a refresh POST is rejected, `adoptFromStore()` re-reads the `TokenStore` and adopts a token another process may have already persisted, instead of giving up
+- A failed token save is **never** swallowed — it logs `CRITICAL` to stderr, because the rotated refresh token then exists only in memory
+- Proactive renewal keeps the chain alive only while the client is *in use*. Idle longer than the refresh-token lifetime → the chain lapses and a new browser login is required
+- A 401 that survives the refresh retry raises `TokenExpiredError` ("re-authenticate with browser login"), not a bare `APIError: HTTP 401` (`src/client/http.ts`)
+- `robinhood_check_session` **probes the API** rather than checking that tokens exist: `logged_in` | `expired` (with re-login instructions) | `unknown` (transient/network) | `not_authenticated`
 - **Docker / headless:** Use `EncryptedFileTokenStore` — set `ROBINHOOD_TOKENS_FILE` and `ROBINHOOD_TOKEN_KEY` env vars. The `onboard` command can export encrypted tokens for container use.
 
 ## Safety Rules

@@ -58,9 +58,11 @@
 src/client/                    <- robinhood-for-agents client library
 ├── index.ts                   <- Exports: RobinhoodClient, getClient(), login()
 ├── client.ts                  <- RobinhoodClient class (76 async methods)
-├── auth.ts                    <- Direct auth: TokenStore load, Bearer injection, 401 refresh
+├── auth.ts                    <- Direct auth: TokenStore load, Bearer injection, proactive +
+│                                 401 refresh, rotation recovery (adoptFromStore)
 ├── token-store.ts             <- TokenStore interface + KeychainTokenStore + EncryptedFileTokenStore
-├── session.ts                 <- fetch wrapper (Bearer injection, 401 retry, redirect safety)
+├── session.ts                 <- fetch wrapper (Bearer injection, pre-request ensureFreshToken,
+│                                 401 retry, redirect safety)
 ├── http.ts                    <- GET/POST/DELETE with pagination + trusted-origin validation
 ├── urls.ts                    <- Const URL builders (API_BASE, NUMMUS_BASE, BONFIRE_BASE, DORA_BASE)
 ├── errors.ts                  <- Exception hierarchy
@@ -124,8 +126,10 @@ src/server/                    <- robinhood-for-agents MCP server
 │          └── null → AuthenticationError("No tokens found")             │
 │          │                                                              │
 │          ▼                                                              │
+│  backfill tokens.expires_at if absent (deriveExpiresAt)                │
 │  session.setAccessToken(tokens.access_token)                           │
-│  session.onUnauthorized = refreshCallback(state)                       │
+│  session.onUnauthorized  = refreshCallback(state)      (reactive, 401) │
+│  session.ensureFreshToken = ensureFreshCallback(state) (proactive, 24h)│
 │          │                                                              │
 │          ▼                                                              │
 │  return { status: "logged_in", method: "keychain" | "encrypted_file" }│
@@ -133,7 +137,9 @@ src/server/                    <- robinhood-for-agents MCP server
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-The client constructor accepts `tokenStore` to override the default, or `accessToken` for direct token injection (no store, no refresh).
+`status: "logged_in"` here means only that tokens loaded from the store — it is not a claim that they still work. See [Session Health](#session-health).
+
+The client constructor accepts `tokenStore` to override the default, or `accessToken` for direct token injection (no store, no refresh — neither the proactive hook nor the 401 handler is wired up, so an expired token surfaces as `TokenExpiredError`).
 
 ```typescript
 new RobinhoodClient()                          // auto-detect store
@@ -232,8 +238,15 @@ This design is resilient to Robinhood UI changes -- it doesn't depend on any DOM
 │       3. Generate random key → store in keychain                  │
 │     Use case: Docker, headless servers, CI — no OS keychain.      │
 │                                                                    │
+│  HELPERS                                                           │
+│  ───────                                                           │
+│  deriveExpiresAt(token, {expiresIn, issuedAt})                    │
+│    JWT `exp` claim (authoritative) → else issuedAt + expiresIn    │
+│  withTimestamp(tokens) → stamps saved_at + expires_at             │
+│                                                                    │
 │  TokenData (JSON):                                                 │
-│  {access_token, refresh_token, token_type, device_token, saved_at}│
+│  {access_token, refresh_token, token_type, device_token,          │
+│   account_hint?, saved_at, expires_at?}                           │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
@@ -249,6 +262,8 @@ This design is resilient to Robinhood UI changes -- it doesn't depend on any DOM
 │         ▼                                                               │
 │  session.get(url, params)                                              │
 │         ├── authHeaders(): inject Authorization: Bearer <token>        │
+│         ├── ensureFreshToken(): renew if within 24h of expires_at,     │
+│         │      then re-stamp the Authorization header                  │
 │         ├── safeFetch(): manual redirect following (trusted origins)   │
 │         │                                                               │
 │         ▼                                                               │
@@ -259,12 +274,62 @@ This design is resilient to Robinhood UI changes -- it doesn't depend on any DOM
 │         └── 401 → fetchWithRetry() calls onUnauthorized()             │
 │                    ├── POST /oauth2/token/ (refresh_token grant)       │
 │                    ├── Update state.tokens + store.save(newTokens)     │
+│                    ├── on rejection: adoptFromStore() re-reads the     │
+│                    │      store in case another process rotated first  │
 │                    ├── session.accessToken = newToken                   │
 │                    └── Retry original request with new Bearer token    │
 │                    (concurrent 401s share a single refresh attempt)    │
+│                    (still 401 → TokenExpiredError, not APIError)       │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Token Refresh & Rotation
+
+Robinhood enforces **single-use refresh-token rotation**: each refresh returns a new `refresh_token`, kills the old one immediately (`HTTP 401 invalid_grant` on replay), and revokes the previous access token as well. Access-token TTL is not fixed -- the `expires_in: 734000` (~8.5 days) we send is only sometimes honored, and observed lifetimes run from ~5.9 to ~8.5 days. The client never assumes a duration: `deriveExpiresAt()` reads the JWT `exp` claim off the access token (falling back to `issuedAt + expires_in`) and persists it as `TokenData.expires_at`.
+
+```
+┌─ two refresh paths ───────────────────────────────────────────────┐
+│                                                                    │
+│  PROACTIVE — session.ensureFreshToken (pre-request hook)           │
+│    now >= expires_at - REFRESH_SKEW_SEC (24h) → refresh            │
+│    expires_at undefined (legacy entry, non-JWT) → skip, leave      │
+│      it to the reactive path                                       │
+│                                                                    │
+│  REACTIVE — session.onUnauthorized (401 handler)                   │
+│    fallback when the proactive hook did not fire or failed         │
+│                                                                    │
+│  BOTH → refreshTokens(state)                                       │
+│    POST api.robinhood.com/oauth2/token/                            │
+│      grant_type=refresh_token, client_id=<mobile app>,             │
+│      device_token=<stored>, expires_in=734000                      │
+│    ok     → new {access,refresh} → state.tokens → store.save()     │
+│    not ok → adoptFromStore(): re-read the store; if another        │
+│             process already rotated, adopt its token               │
+│    save fails → CRITICAL to stderr (rotated token is memory-only)  │
+│                                                                    │
+│  GUARDS: one in-flight refresh per client (state.refreshing),      │
+│  5s minimum interval (MIN_REFRESH_INTERVAL_MS)                     │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+Proactive renewal exists because the reactive path alone cannot keep the chain alive: nothing refreshes while the process is idle, so an idle gap longer than the token lifetime lets the refresh chain lapse and forces a new browser login. It is the chain lapsing -- not the access token expiring -- that costs the user a re-login.
+
+`adoptFromStore()` narrows but does not close the multi-process race. There is no cross-process lock, so two clients sharing one store can both attempt a refresh; the loser holds a token the server has already killed and recovers only if the winner has finished persisting. One long-lived process per token store is the intended deployment.
+
+`restoreSession()` backfills `expires_at` for entries persisted before the field existed, and `logout()` clears both `onUnauthorized` and `ensureFreshToken`.
+
+### Session Health
+
+`robinhood_check_session` does not report on stored tokens alone -- loading a token proves nothing about whether it still works. It calls `restoreSession()` and then probes `getAccountProfile()`:
+
+| Status | Meaning |
+|---|---|
+| `logged_in` | Probe succeeded. Returns `account_hint` (last 4 of the account number) |
+| `expired` | Probe raised `AuthenticationError` -- refresh already ran and could not recover. Re-run `robinhood_browser_login` |
+| `unknown` | Probe failed for a non-auth reason (network/transient). The session may well be fine |
+| `not_authenticated` | No tokens in the store |
 
 ## HTTP Layer
 
@@ -288,6 +353,7 @@ session.get(url, params)                <- native fetch
 raiseForStatus(response)
     ├── 404 -> NotFoundError
     ├── 429 -> RateLimitError
+    ├── 401 -> TokenExpiredError  (refresh already ran and failed)
     └── other non-2xx -> APIError(statusCode, responseBody)
     │
     ▼
@@ -313,6 +379,8 @@ RobinhoodError
 ```
 
 Every error carries context. No silent `undefined` returns.
+
+Note the branch: `TokenExpiredError` descends from `AuthenticationError`, **not** `APIError`. A 401 that survives the automatic refresh retry now raises `TokenExpiredError` ("session expired and could not be refreshed. Re-authenticate with browser login.") rather than a bare `APIError: HTTP 401`. Callers that previously matched `APIError` with `statusCode === 401` must catch `AuthenticationError` (or `TokenExpiredError`) instead -- `TokenExpiredError` carries no `statusCode` or `responseBody`.
 
 ## Multi-Account
 
@@ -396,7 +464,8 @@ Stock order payloads include `order_form_version: 7` (required by the Robinhood 
 |---|---|
 | **TokenStore adapters** | Pluggable token storage. KeychainTokenStore for desktop, EncryptedFileTokenStore for Docker/headless. Client never hard-codes a storage strategy. |
 | **Direct Bearer auth** | Session injects `Authorization: Bearer` directly on every request. No proxy, no URL rewriting, no shared secret. Simpler, fewer moving parts. |
-| **401 retry in session** | `onUnauthorized` callback refreshes the token and retries once. Concurrent 401s coalesce into a single refresh. |
+| **Proactive + reactive refresh** | `ensureFreshToken` renews 24h ahead of `expires_at` before each request; `onUnauthorized` refreshes and retries once on a 401 as a fallback. Concurrent 401s coalesce into a single refresh. Proactive is required because refresh tokens are single-use and an idle process would otherwise let the chain lapse. |
+| **`adoptFromStore` over hard failure** | A rejected refresh re-reads the TokenStore before giving up — another process may have already rotated and persisted a working token. Narrows the multi-process race; there is no cross-process lock, so it does not eliminate it. |
 | **Const URL builders** | `API_BASE`, `NUMMUS_BASE`, `BONFIRE_BASE`, and `DORA_BASE` are `const` -- no mutable state, no `configureProxy()`. All URLs point to Robinhood directly. |
 | **Bun + native fetch** | Zero deps for HTTP, native TS execution, fast startup |
 | **Class-based over module globals** | Instance-scoped session prevents shared mutable state. Testable. |

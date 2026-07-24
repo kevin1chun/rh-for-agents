@@ -72,7 +72,7 @@ These operations are **never exposed** through MCP tools or skills.
 - Blocked operations are documented as "never use" in reference files
 
 ### General
-- Access tokens last ~8.5 days and auto-refresh on 401 via the stored refresh token
+- Access-token lifetime varies (~6–8.5 days observed). Tokens renew automatically — proactively ~24h before expiry, and on a 401 as a fallback — so a session in regular use stays alive; one left idle past the refresh-token lifetime lapses and needs a new browser login
 - Browser-based login only — no credentials pass through the tool layer
 - Session tokens stored in OS keychain via `Bun.secrets` (macOS Keychain Services) — no plaintext fallback
 - See [SECURITY.md](./SECURITY.md) for the full threat model and deployment tiers

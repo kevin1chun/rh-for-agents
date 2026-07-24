@@ -11,6 +11,7 @@ Robinhood for AI agents — MCP server with 49 tools + TypeScript client library
 - **Unified trading skill** for guided workflows (Claude Code, OpenClaw, [ClawHub](https://clawhub.ai/kevin1chun/robinhood-for-agents))
 - **TypeScript client library** (70+ async methods) for programmatic use
 - **Pluggable token storage** — OS keychain (default) or encrypted file (Docker/headless)
+- **Self-renewing sessions** — tokens refresh ahead of expiry and on 401, so continuous use never needs a re-login
 
 Compatible with **Claude Code**, **Codex**, **OpenClaw**, and any MCP-compatible agent.
 
@@ -123,7 +124,7 @@ From a source checkout, use `"command": "bun", "args": ["run", "/absolute/path/t
 
 ## Authenticate
 
-Start your agent and say "setup robinhood" (or call `robinhood_browser_login` directly). Your browser will open to the real Robinhood login page — log in with your credentials and MFA. The session is cached in your OS keychain and auto-refreshes when the access token expires (via the stored refresh token), so you stay logged in for roughly a week before a browser re-login is needed.
+Start your agent and say "setup robinhood" (or call `robinhood_browser_login` directly). Your browser will open to the real Robinhood login page — log in with your credentials and MFA. The session is cached in your OS keychain and renews itself: the client refreshes the token a day before it expires, and again on any 401. Regular use keeps you logged in indefinitely — a browser re-login is only needed if the client sits unused long enough for the refresh chain to lapse. Ask your agent to run `robinhood_check_session` if you're unsure.
 
 ## MCP Tools (49)
 
@@ -132,7 +133,7 @@ All 49 tools work with every MCP-compatible agent.
 | Tool | Description |
 |------|-------------|
 | `robinhood_browser_login` | Authenticate via Chrome browser |
-| `robinhood_check_session` | Check if cached session is valid |
+| `robinhood_check_session` | Probe the cached session: `logged_in` / `expired` / `unknown` / `not_authenticated` |
 | `robinhood_get_portfolio` | Portfolio: positions, P&L, equity, cash, buying power |
 | `robinhood_get_equity_positions` | Raw equity positions (shares, avg price) |
 | `robinhood_get_equity_tax_lots` | Open tax lots for one equity holding (cost basis, term, open date) |
@@ -264,7 +265,7 @@ services:
       ROBINHOOD_TOKEN_KEY: "${ROBINHOOD_TOKEN_KEY}"
 ```
 
-Token refresh writes re-encrypted tokens back to the file automatically.
+Token refresh writes re-encrypted tokens back to the file automatically — keep the mount read-write. Refresh tokens are single-use: Robinhood kills the old one the instant a new one is issued, so a failed write leaves the only usable copy in memory and the container is stranded after restart. The client logs a `CRITICAL` message to stderr when a save fails — alert on it. See [docs/DOCKER.md](docs/DOCKER.md).
 
 > **Security warning:** The encrypted file protects against casual disk access (image leaks, accidental exposure) but NOT against a malicious agent with shell access in the container — it can read the env var and decrypt. Only run agents you trust. See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model.
 
@@ -288,9 +289,24 @@ Token refresh writes re-encrypted tokens back to the file automatically.
 |---|---|---|
 | `KeychainTokenStore` (default) | Local dev, macOS/Linux with desktop | Nothing — works out of the box |
 | `EncryptedFileTokenStore` | Docker, headless servers, CI, cloud | Set `ROBINHOOD_TOKENS_FILE` + `ROBINHOOD_TOKEN_KEY` env vars |
-| Direct `accessToken` | Serverless, testing, short-lived scripts | Pass `accessToken` to constructor or set `ROBINHOOD_ACCESS_TOKEN` env var |
+| Direct `accessToken` | Serverless, testing, short-lived scripts | Pass `accessToken` to constructor or set `ROBINHOOD_ACCESS_TOKEN` env var — no refresh; expiry raises `TokenExpiredError` |
 
-**How it works**: `restoreSession()` loads tokens from the configured `TokenStore`, injects `Authorization: Bearer` headers directly into API requests, and registers automatic token refresh on 401.
+**How it works**: `restoreSession()` loads tokens from the configured `TokenStore`, injects `Authorization: Bearer` headers directly into API requests, and registers both refresh paths — a pre-request hook that renews the token 24 hours ahead of expiry, and a 401 handler that refreshes and retries once. Sessions saved before token expiry was tracked are backfilled on load, so existing keychain logins get proactive renewal without re-authenticating.
+
+**Session lifetime**: Access-token TTL varies (~6–8.5 days observed — never assume a fixed number). Robinhood rotates refresh tokens on every use: each refresh returns a new one and instantly invalidates the old, so it is the refresh *chain*, not the access token, that keeps you logged in. Regular use keeps the chain alive; a long idle gap lets it lapse.
+
+**When a session expires**: API calls raise `TokenExpiredError` (a subclass of `AuthenticationError`) instead of a bare `HTTP 401`, and `robinhood_check_session` probes the API and reports:
+
+| Status | Meaning |
+|---|---|
+| `logged_in` | Tokens loaded and a live API probe succeeded |
+| `expired` | Tokens no longer work and could not be refreshed — run `robinhood_browser_login` |
+| `unknown` | Probe failed for a transient/network reason; the session may still be fine |
+| `not_authenticated` | No tokens in the store — run `robinhood-for-agents onboard` |
+
+Recovery is always the same: re-run browser login (`robinhood_browser_login`, or say "setup robinhood").
+
+**One writer per token store**: rotation is single-use, so two processes sharing one store can poison each other — the loser refreshes with a token the winner already spent. The client recovers by re-reading the store and adopting whatever the other process persisted, but there is no cross-process lock. Point a single process at a given store where you can.
 
 ```typescript
 import { RobinhoodClient, EncryptedFileTokenStore } from "robinhood-for-agents";
@@ -301,7 +317,7 @@ const client = new RobinhoodClient();
 // Docker/headless: EncryptedFileTokenStore (auto-detected from ROBINHOOD_TOKENS_FILE env)
 const client = new RobinhoodClient({ tokenStore: new EncryptedFileTokenStore() });
 
-// Direct token (no refresh)
+// Direct token (no store, no refresh — expiry surfaces as TokenExpiredError)
 const client = new RobinhoodClient({ accessToken: "..." });
 ```
 

@@ -8,10 +8,20 @@
 
 import { AuthenticationError } from "./errors.js";
 import type { RobinhoodSession } from "./session.js";
-import type { TokenData, TokenStore } from "./token-store.js";
+import { deriveExpiresAt, type TokenData, type TokenStore } from "./token-store.js";
 
 const CLIENT_ID = "c82SH0WZOsabOXGP2sxqcj34FxkvfnWRZBKlBjFS";
 const EXPIRATION_TIME = 734000;
+
+/**
+ * Renew this far ahead of expiry rather than waiting for a 401.
+ *
+ * Robinhood grants roughly 8.5 days on a refresh, so a day of slack leaves
+ * plenty of room while keeping the refresh chain alive: every renewal issues a
+ * fresh refresh token, and it is the chain lapsing — not the access token
+ * expiring — that forces a new browser login.
+ */
+const REFRESH_SKEW_SEC = 24 * 60 * 60;
 
 export interface LoginResult {
   status: "logged_in";
@@ -29,6 +39,30 @@ export interface AuthState {
 }
 
 /**
+ * A refresh attempt failed. Another process may have already rotated the token
+ * and persisted a working one, so reload the store before giving up rather than
+ * failing while a valid credential sits on disk.
+ *
+ * Refresh tokens are single-use: once any process refreshes, every other
+ * process is holding a token the server has already invalidated, and its
+ * in-memory copy can never recover on its own.
+ */
+async function adoptFromStore(state: AuthState, attempted: string): Promise<string | null> {
+  let stored: TokenData | null;
+  try {
+    stored = await state.store.load();
+  } catch {
+    return null;
+  }
+
+  // Same token we just tried means nobody else refreshed — nothing to adopt.
+  if (!stored || stored.refresh_token === attempted) return null;
+
+  state.tokens = stored;
+  return stored.access_token;
+}
+
+/**
  * Refresh the access token using the refresh_token + device_token.
  * Returns the new access token on success, null on failure.
  */
@@ -36,26 +70,33 @@ async function refreshTokens(state: AuthState): Promise<string | null> {
   const { tokens, store } = state;
   if (!tokens.refresh_token || !tokens.device_token) return null;
 
+  const attempted = tokens.refresh_token;
+
   const body = new URLSearchParams({
     grant_type: "refresh_token",
-    refresh_token: tokens.refresh_token,
+    refresh_token: attempted,
     scope: "internal",
     client_id: CLIENT_ID,
     expires_in: String(EXPIRATION_TIME),
     device_token: tokens.device_token,
   });
 
-  const resp = await fetch("https://api.robinhood.com/oauth2/token/", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-      "X-Robinhood-API-Version": "1.431.4",
-    },
-    body: body.toString(),
-    signal: AbortSignal.timeout(10_000),
-  });
+  let resp: Response;
+  try {
+    resp = await fetch("https://api.robinhood.com/oauth2/token/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+        "X-Robinhood-API-Version": "1.431.4",
+      },
+      body: body.toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return adoptFromStore(state, attempted);
+  }
 
-  if (!resp.ok) return null;
+  if (!resp.ok) return adoptFromStore(state, attempted);
 
   let data: Record<string, unknown>;
   try {
@@ -66,22 +107,36 @@ async function refreshTokens(state: AuthState): Promise<string | null> {
 
   if (!("access_token" in data)) return null;
 
+  const accessToken = data.access_token as string;
+  const savedAt = Date.now() / 1000;
   const newTokens: TokenData = {
-    access_token: data.access_token as string,
-    refresh_token: (data.refresh_token as string) ?? tokens.refresh_token,
+    access_token: accessToken,
+    refresh_token: (data.refresh_token as string) ?? attempted,
     token_type: (data.token_type as string) ?? "Bearer",
     device_token: tokens.device_token,
-    saved_at: Date.now() / 1000,
+    account_hint: tokens.account_hint,
+    saved_at: savedAt,
+    expires_at: deriveExpiresAt(accessToken, {
+      expiresIn: typeof data.expires_in === "number" ? data.expires_in : undefined,
+      issuedAt: savedAt,
+    }),
   };
 
   // Update in-memory state
   state.tokens = newTokens;
 
-  // Persist to store (best-effort)
+  // Persist before the caller uses the new access token. Rotation is enforced
+  // server-side: `attempted` is already dead, so a lost save leaves the only
+  // copy of the new refresh token in memory and strands the next process start.
+  // That is not a benign degradation, so it must not be swallowed silently.
   try {
     await store.save(newTokens);
-  } catch {
-    // Store unavailable — tokens live in memory only
+  } catch (e) {
+    console.error(
+      "[robinhood-for-agents] CRITICAL: refreshed tokens could not be persisted " +
+        `(${e instanceof Error ? e.message : String(e)}). The rotated refresh token now ` +
+        "exists only in memory — once this process exits a new browser login will be required.",
+    );
   }
 
   return newTokens.access_token;
@@ -109,6 +164,31 @@ function createRefreshCallback(state: AuthState): () => Promise<string | null> {
 }
 
 /**
+ * Create the pre-request hook that renews the token before it expires.
+ *
+ * Waiting for a 401 is not enough on its own: nothing refreshes while the
+ * process is idle, so a gap longer than the refresh-token lifetime lets the
+ * chain lapse and forces a new browser login. Renewing ahead of expiry keeps
+ * the chain alive for as long as the client is actually being used.
+ */
+function createEnsureFreshCallback(
+  state: AuthState,
+  session: RobinhoodSession,
+  refresh: () => Promise<string | null>,
+): () => Promise<void> {
+  return async () => {
+    const expiresAt = state.tokens.expires_at;
+    // Unknown expiry (non-JWT token, or a store entry predating the field):
+    // leave it to the reactive 401 path rather than refreshing on every call.
+    if (expiresAt === undefined) return;
+    if (Date.now() / 1000 < expiresAt - REFRESH_SKEW_SEC) return;
+
+    const token = await refresh();
+    if (token) session.setAccessToken(token);
+  };
+}
+
+/**
  * Restore a session by loading tokens from the store and configuring
  * the session for direct API access with automatic token refresh.
  */
@@ -123,6 +203,12 @@ export async function restoreSession(
     );
   }
 
+  // Backfill expiry for entries persisted before `expires_at` existed, so
+  // proactive renewal works without waiting for a re-login.
+  if (tokens.expires_at === undefined) {
+    tokens.expires_at = deriveExpiresAt(tokens.access_token, { issuedAt: tokens.saved_at });
+  }
+
   // Set access token on the session for Bearer injection
   session.setAccessToken(tokens.access_token);
 
@@ -134,8 +220,11 @@ export async function restoreSession(
     lastRefreshAt: 0,
   };
 
-  // Register 401 callback for automatic token refresh
-  session.onUnauthorized = createRefreshCallback(state);
+  // Register 401 callback for automatic token refresh, plus the pre-request
+  // hook that renews ahead of expiry so the refresh chain does not lapse.
+  const refresh = createRefreshCallback(state);
+  session.onUnauthorized = refresh;
+  session.ensureFreshToken = createEnsureFreshCallback(state, session, refresh);
 
   const method = store.constructor.name.includes("Encrypted") ? "encrypted_file" : "keychain";
 
@@ -189,4 +278,5 @@ export async function logout(session: RobinhoodSession, state: AuthState | null)
 
   session.clearAccessToken();
   session.onUnauthorized = null;
+  session.ensureFreshToken = null;
 }

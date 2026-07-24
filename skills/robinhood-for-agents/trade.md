@@ -2,6 +2,8 @@
 
 **CRITICAL: Safety rules in SKILL.md apply to ALL operations below. Always confirm with the user before placing any order.**
 
+**Session first.** Verify the session per [SKILL.md](SKILL.md#authentication-prerequisite) *before* Step 1 — `restoreSession()` succeeds on dead tokens, so an unverified session fails partway through the flow instead of up front. If any step throws `TokenExpiredError`, **stop**: re-authenticate via [setup.md](setup.md), then restart from Step 3 (re-review) — never place an order against a review taken before a re-login. Run one client at a time during an order flow; refresh tokens are single-use and a competing process can invalidate the session mid-order.
+
 ## Order Flow
 
 ### Step 1: Resolve Account
@@ -54,6 +56,8 @@ Proceed? (yes/no)
 Wait for the user to explicitly confirm. If the quote in the review has since gone stale, re-run the review before placing.
 
 ### Step 5: Place Order (after user confirms)
+
+If the place call fails with `TokenExpiredError`, the order was **not** placed — the request never reached Robinhood. Re-authenticate ([setup.md](setup.md)), then re-run Step 3 and re-confirm with the user before trying again; do not blind-retry the place call.
 
 ## Stock Orders
 

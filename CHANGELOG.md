@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-24
+
+### Added
+
+- **Proactive token renewal** — `TokenData` gained an optional `expires_at` (unix seconds) and a new exported `deriveExpiresAt(accessToken, {expiresIn, issuedAt})` helper that prefers the JWT `exp` claim and falls back to `issuedAt + expires_in`. `RobinhoodSession.ensureFreshToken` is a new pre-request hook that renews the access token 24h before expiry (`REFRESH_SKEW_SEC`) instead of waiting for a 401 — refresh tokens are single-use and rotate on every grant, so it is the chain lapsing while the client is idle, not the access token expiring, that forces a browser re-login. `restoreSession()` backfills `expires_at` for entries persisted before the field existed, so existing logins get proactive renewal without re-authenticating; the field is optional purely for that back-compat.
+- **Cross-process token adoption** — when a refresh POST is rejected, `adoptFromStore()` re-reads the `TokenStore` and adopts a token another process may have already persisted, rather than failing while a valid credential sits in the store. Robinhood enforces single-use refresh-token rotation with no cross-process lock available, so two clients refreshing concurrently poison the loser; this makes that recoverable, but a single writer per store is still the supported configuration.
+
+### Changed
+
+- **`robinhood_check_session` now probes the API** instead of reporting `logged_in` whenever tokens merely exist. Returns `logged_in` (probe succeeded), `expired` (tokens dead and unrefreshable, with re-login instructions), `unknown` (transient/network failure — deliberately not claimed as expired), or `not_authenticated`.
+- **A 401 surviving the refresh retry raises `TokenExpiredError`** (existing `AuthenticationError` subclass, now actually used) telling the caller to re-authenticate with browser login, instead of a bare `APIError: HTTP 401` that gave no indication a re-login was needed.
+- **Refresh-token save failures are no longer silently swallowed** — they log a `CRITICAL` message to stderr. Under enforced rotation the attempted token is already dead, so a lost save leaves the only copy of the new refresh token in memory and strands the next process start.
+- Documentation corrected throughout: access-token lifetime is **variable** (~6–8.5 days observed), not a fixed ~8.5 days, and refresh is no longer described as 401-only. `docs/DOCKER.md` gains a single-writer warning and a container re-authentication runbook.
+
 ## [1.0.1] - 2026-07-16
 
 ### Fixed
@@ -178,6 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Safety controls: blocked fund transfers, blocked bulk cancels, explicit order parameters
 - Support for Claude Code, Codex, and OpenClaw agents
 
+[1.1.0]: https://github.com/kevin1chun/robinhood-for-agents/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/kevin1chun/robinhood-for-agents/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/kevin1chun/robinhood-for-agents/compare/v0.7.2...v0.8.0

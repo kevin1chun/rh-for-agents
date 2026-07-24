@@ -9,7 +9,7 @@ install:
     bins: [robinhood-for-agents]
 requires:
   bins: [bun]
-metadata: {"credentials":"OAuth tokens stored via TokenStore adapters: KeychainTokenStore (OS keychain, default) or EncryptedFileTokenStore (for Docker/headless). restoreSession() loads tokens and injects Bearer auth directly. Access tokens last ~8.5 days and auto-refresh on 401 via the stored refresh token, so the user stays logged in for roughly a week+ before a browser re-login is needed.","chrome":"Google Chrome is required only for initial login (bunx robinhood-for-agents onboard) — playwright-core drives the system Chrome; there is no Brave/Chromium fallback or BROWSER_PATH override. Not needed for subsequent API calls."}
+metadata: {"credentials":"OAuth tokens stored via TokenStore adapters: KeychainTokenStore (OS keychain, default) or EncryptedFileTokenStore (for Docker/headless). restoreSession() loads tokens, injects Bearer auth directly, and registers both proactive renewal (a pre-request hook renews ~24h before expiry) and reactive refresh (on 401). Access-token lifetime varies (~6-8.5 days observed) — never assume a fixed number. Refresh tokens are single-use and rotate on every renewal, so only one client should drive a session at a time. Renewal happens only while the client is in use: a session left idle past the refresh-token lifetime lapses and needs a new browser login.","chrome":"Google Chrome is required only for initial login (bunx robinhood-for-agents onboard) — playwright-core drives the system Chrome; there is no Brave/Chromium fallback or BROWSER_PATH override. Not needed for subsequent API calls."}
 ---
 
 # robinhood-for-agents
@@ -33,7 +33,7 @@ console.log(JSON.stringify(holdings, null, 2));
 
 See [client-api.md](client-api.md) for all available methods and signatures.
 
-> **MCP users:** If you have the `robinhood-for-agents` MCP server configured, you may use MCP tools instead. See [reference.md](reference.md) for tool parameters. MCP is optional — the client API above does everything the MCP tools do.
+> **MCP users:** If you have the `robinhood-for-agents` MCP server configured, you may use MCP tools instead. See [reference.md](reference.md) for tool parameters. MCP is optional — the client API above does everything the MCP tools do. Pick **one** mode per session and stay in it: the MCP server and a `bun -e` script are two separate token-refreshing processes, and refresh tokens are single-use, so interleaving them can poison one of them. In MCP mode, `robinhood_check_session` is the session check — it probes the API rather than just reading the keychain.
 
 ## CRITICAL SAFETY RULES
 1. **Always confirm before placing any order** — show order preview, get explicit "yes"
@@ -64,11 +64,25 @@ See [client-api.md](client-api.md) for all available methods and signatures.
 Read the corresponding domain file for detailed workflow instructions.
 
 ## Authentication Prerequisite
-Before any data-fetching or trading operation, verify the session is active:
+Before any data-fetching or trading operation, verify the session actually works. `restoreSession()` only loads tokens from the store — it does **not** prove they are still valid, so probe with a real call:
 ```bash
-bun -e 'import { getClient } from "robinhood-for-agents"; const rh = getClient(); await rh.restoreSession(); console.log("ok");'
+bun -e '
+import { getClient, AuthenticationError } from "robinhood-for-agents";
+const rh = getClient();
+try {
+  await rh.restoreSession();
+  await rh.getAccountProfile();          // the probe — this is what proves the token works
+  console.log("logged_in");
+} catch (e) {
+  console.log(e instanceof AuthenticationError ? `expired: ${e.name}` : `unknown: ${e}`);
+}
+'
 ```
-If it throws, follow [setup.md](setup.md) to authenticate.
+- `logged_in` → proceed.
+- `expired` (`TokenExpiredError` / `AuthenticationError`) → the tokens are dead and could not be refreshed. Follow [setup.md](setup.md) to re-authenticate.
+- `unknown` → a transient/network failure. The session may well be fine — **do not** send the user through a browser re-login on this; retry once first.
+
+> **MCP mode:** call `robinhood_check_session` instead — it probes the API and returns `logged_in` / `expired` / `unknown` / `not_authenticated`. Only `expired` and `not_authenticated` warrant `robinhood_browser_login`.
 
 ## Client Methods
 
@@ -80,4 +94,6 @@ The client exposes 70+ async methods across auth, portfolio, research, options, 
 ## Important Notes
 - **Do NOT use `phoenix.robinhood.com`** — use `api.robinhood.com` endpoints only
 - Multi-account is first-class: always ask which account when multiple exist
-- Session tokens (access token) last ~8.5 days; the client auto-refreshes on 401 via the stored refresh token, so re-auth is only needed roughly once a week+
+- Session tokens renew themselves: the client refreshes proactively (~24h before expiry) and again on a 401, so a session in regular use stays alive without a re-login. Access-token TTL varies (~6-8.5 days observed) — never quote a fixed number
+- Refresh tokens are **single-use**: every renewal issues a new one and instantly kills the old (and revokes the previous access token). Run one client at a time — MCP server *or* a `bun -e` script, not both; a second process gets poisoned. It self-heals by re-reading the token store, but there is no cross-process lock
+- Renewal only happens while the client is being used. A session left idle past the refresh-token lifetime lapses and needs a **new browser login** — see [setup.md](setup.md)

@@ -1,5 +1,7 @@
 # Options — Chain Analysis & Index Options
 
+`restoreSession()` loads tokens but does not validate them — a `TokenExpiredError` from any call below means the session is dead and automatic refresh could not recover it; re-authenticate via [setup.md](setup.md) rather than retrying.
+
 ## Fetching Options Data
 
 ```bash
