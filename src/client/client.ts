@@ -934,6 +934,21 @@ export class RobinhoodClient {
       }
     }
 
+    // Short-sale-only constraints, all enforced server-side — reproduced here so
+    // the caller gets the reason before an order is attempted. Verified live:
+    // `all_day_hours` → "Short selling isn't available during the 24 Hour Market.";
+    // `gtc` → "Short sell orders must be good for day only."
+    if (side === "sell_short") {
+      if (marketHours === "all_day_hours") {
+        throw new Error("Short selling is not available during the 24 Hour Market (all_day_hours)");
+      }
+      if (opts?.timeInForce != null && opts.timeInForce !== "gfd") {
+        throw new Error(
+          `Short sales must be good-for-day — timeInForce "${opts.timeInForce}" is not accepted`,
+        );
+      }
+    }
+
     // Fractional orders must be market orders with gfd
     const isFractional = !Number.isInteger(quantity);
     if (isFractional) {

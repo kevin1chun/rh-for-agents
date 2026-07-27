@@ -454,7 +454,16 @@ buy to cover a short   -> side: "buy"                        (server stamps posi
 
 Both fields are required together for a short: `side: "sell"` alone on an account with no shares is rejected with `Not enough shares to sell.`, and either of `sell_short` / `position_effect` without the other returns `This type of trade is invalid.` `order_form_type` (`"short_selling"`) is derived server-side and deliberately not sent. There is no cover side — `buy_to_cover` is not a valid choice for the field.
 
-Shorting requires a margin-enabled account (a cash account is rejected with `You need to have margin investing enabled to short.`) and whole shares. `orderStock()` sets `position_effect` **only** for `sell_short`, so an ordinary buy/sell payload from the client library is byte-identical to what it sent before. (Orders placed through the MCP tool always carry `market_hours`, because the tool requires it — matching what Robinhood's own client sends on every order.)
+Short sales carry constraints beyond the side/effect pair, all verified against the live API and reproduced client-side so the caller gets the reason before an order is attempted:
+
+| Constraint | API rejection when violated |
+|---|---|
+| Margin-enabled account | `You need to have margin investing enabled to short.` |
+| Whole shares | (fractional shorts are not supported) |
+| `gfd` only | `Short sell orders must be good for day only.` |
+| `regular_hours` / `extended_hours` only | `Short selling isn't available during the 24 Hour Market.` |
+| Session named outside regular hours | `It's after market close. To place this short sell order, change your trading session to extended hours.` |
+ `orderStock()` sets `position_effect` **only** for `sell_short`, so an ordinary buy/sell payload from the client library is byte-identical to what it sent before. (Orders placed through the MCP tool always carry `market_hours`, because the tool requires it — matching what Robinhood's own client sends on every order.)
 
 Order writes resolve the symbol with `resolveInstrumentBySymbol()`, an **exact** match that refuses ambiguous tickers, never `findInstruments()[0]` — the first hit of a fuzzy `?query=` search can be a same-prefix or relisted/OTC duplicate. `reviewEquityOrder()` uses the same resolver, so a review and the order it authorises cannot resolve to different securities.
 

@@ -196,7 +196,9 @@ Every order goes through **review → confirm → place**. `robinhood_review_equ
 | **Open a short** | `sell_short` | Margin-enabled account, whole shares only |
 | **Cover a short** | `buy` | No separate cover side exists |
 
-`sell` closes a long position — it does **not** open a short. Selling stock the account doesn't hold is rejected by Robinhood with `Not enough shares to sell.` Use `sell_short` to open a short; a cash account is rejected with `You need to have margin investing enabled to short.` Shorting carries unlimited loss potential, so confirm the user asked to open a *short* rather than to sell a holding.
+`sell` closes a long position — it does **not** open a short. Selling stock the account doesn't hold is rejected by Robinhood with `Not enough shares to sell.` Use `sell_short` to open a short. Shorting carries unlimited loss potential, so confirm the user asked to open a *short* rather than to sell a holding.
+
+Short sales additionally require a margin-enabled account, whole shares, `gfd` time-in-force, and either the regular or extended session — they are **not** available in the 24 Hour Market. Each constraint is checked client-side, so you get the reason rather than an opaque rejection.
 
 **Trading session** — `market_hours` is **required**, with no default:
 

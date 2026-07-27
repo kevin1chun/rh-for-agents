@@ -530,9 +530,10 @@ describe("RobinhoodClient", () => {
       }
     });
 
-    // The `??=` on the short-sale session must not clobber an explicit
-    // all_day_hours — otherwise an overnight short is silently downgraded.
-    it("preserves an explicit all_day_hours on a short sale", async () => {
+    // The `??=` on the short-sale session must not clobber an explicit session.
+    // (all_day_hours is not testable here — Robinhood rejects short sales in the
+    // 24 Hour Market outright, so the guard above fires first.)
+    it("preserves an explicit extended_hours on a short sale", async () => {
       // findInstruments (via resolveInstrumentBySymbol)
       mockRequestGet.mockResolvedValueOnce([
         {
@@ -549,12 +550,12 @@ describe("RobinhoodClient", () => {
       await client.orderStock("AAPL", "sell_short", 10, {
         limitPrice: 150,
         timeInForce: "gfd",
-        marketHours: "all_day_hours",
+        marketHours: "extended_hours",
         accountNumber: "456",
       });
 
       const payload = mockRequestPost.mock.calls[0]?.[2]?.payload as Record<string, unknown>;
-      expect(payload.market_hours).toBe("all_day_hours");
+      expect(payload.market_hours).toBe("extended_hours");
       expect(payload.extended_hours).toBe(true);
       expect(payload.position_effect).toBe("open");
     });
@@ -630,6 +631,31 @@ describe("RobinhoodClient", () => {
           accountNumber: "456",
         }),
       ).rejects.toThrow("contradicts marketHours");
+    });
+
+    // Both verified live against the API, which rejects them with
+    // "Short selling isn't available during the 24 Hour Market." and
+    // "Short sell orders must be good for day only."
+    it("rejects a short sale in the 24 Hour Market", async () => {
+      await expect(
+        client.orderStock("AAPL", "sell_short", 10, {
+          limitPrice: 150,
+          timeInForce: "gfd",
+          marketHours: "all_day_hours",
+          accountNumber: "456",
+        }),
+      ).rejects.toThrow("not available during the 24 Hour Market");
+    });
+
+    it("rejects a good-till-cancelled short sale", async () => {
+      await expect(
+        client.orderStock("AAPL", "sell_short", 10, {
+          limitPrice: 150,
+          timeInForce: "gtc",
+          marketHours: "regular_hours",
+          accountNumber: "456",
+        }),
+      ).rejects.toThrow("must be good-for-day");
     });
 
     it("rejects fractional short sales", async () => {

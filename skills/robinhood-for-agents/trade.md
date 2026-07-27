@@ -105,7 +105,9 @@ Requirements and failure modes:
 |---|---|
 | Margin-enabled account | Required — a cash account is rejected with `You need to have margin investing enabled to short.` |
 | Whole shares | Required — no fractional shorts |
-| Outside regular hours | Pass `marketHours: "extended_hours"` (or `"all_day_hours"`), else `It's after market close. To place this short sell order, change your trading session to extended hours.` |
+| Good-for-day only | `gtc` is rejected: `Short sell orders must be good for day only.` |
+| Regular or extended hours only | **Not available in the 24 Hour Market** — `all_day_hours` is rejected with `Short selling isn't available during the 24 Hour Market.` |
+| Outside regular hours | Pass `marketHours: "extended_hours"`, else `It's after market close. To place this short sell order, change your trading session to extended hours.` |
 | Symbol not shortable | Check `short_selling_tradability` via `robinhood_get_equity_tradability` first |
 
 **Confirm shorts explicitly.** A short has unlimited loss potential and is easy to conflate with selling a holding. Before placing, verify the user asked to *open a short* — if they said "sell my AAPL" and the account holds AAPL, that is a `sell`, not a `sell_short`. Label it **SHORT SELL** in the confirmation, and state that closing it requires buying the shares back.

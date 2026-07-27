@@ -300,7 +300,16 @@ Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeIn
 | Open a short | `sell_short` |
 | Cover a short | `buy` |
 
-`sell` only closes a long — selling stock the account does not hold fails with `Not enough shares to sell.` `sell_short` requires a margin-enabled account (a cash account is rejected with `You need to have margin investing enabled to short.`) and whole shares. There is no separate cover side; a plain `buy` against an open short is recognised as closing it.
+`sell` only closes a long — selling stock the account does not hold fails with `Not enough shares to sell.` There is no separate cover side; a plain `buy` against an open short is recognised as closing it.
+
+`sell_short` carries extra constraints, all enforced client-side so you get the reason before an order is attempted:
+
+| Constraint | If violated |
+|---|---|
+| Margin-enabled account | `You need to have margin investing enabled to short.` |
+| Whole shares | `Short sales must be whole shares` |
+| `timeInForce: "gfd"` | `Short sell orders must be good for day only.` |
+| `regular_hours` or `extended_hours` only | `Short selling isn't available during the 24 Hour Market.` |
 
 **Session** — `marketHours` is `"regular_hours" | "extended_hours" | "all_day_hours"` (the last is Robinhood's 24 Hour Market). It supersedes the legacy `extendedHours` boolean (`extended_hours` on the wire is just `market_hours !== "regular_hours"`); passing both with contradictory values throws. Only limit orders execute outside regular hours — a market, stop, or trailing order tagged to another session is rejected client-side. A short sell placed outside regular hours is rejected unless the session is named.
 
