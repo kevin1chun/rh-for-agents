@@ -13,19 +13,27 @@
  *
  * Run it:
  *
- *   bun examples/short-selling.ts            # dry run: reviews only, places NOTHING
- *   bun examples/short-selling.ts --place    # places a real 1-share order
+ *   bun examples/short-selling.ts                      # dry run: reviews only, places NOTHING
+ *   bun examples/short-selling.ts --place              # places a real 1-share order
+ *   bun examples/short-selling.ts --place --session=extended_hours
  *
- * The dry run is the default on purpose. `--place` spends real money.
+ * The dry run is the default on purpose. `--place` spends real money, and the
+ * round trip is a day trade.
  */
 
-import { RobinhoodClient, type StockOrder } from "robinhood-for-agents";
+import { type OrderMarketHours, RobinhoodClient, type StockOrder } from "robinhood-for-agents";
 
 const SYMBOL = "SPY";
 const QUANTITY = 1;
-/** Trading session: "regular_hours" | "extended_hours" | "all_day_hours". */
-const SESSION = "extended_hours";
 const PLACE = Bun.argv.includes("--place");
+
+const SESSIONS: OrderMarketHours[] = ["regular_hours", "extended_hours", "all_day_hours"];
+const sessionArg = Bun.argv.find((a) => a.startsWith("--session="))?.split("=")[1];
+if (sessionArg && !SESSIONS.includes(sessionArg as OrderMarketHours)) {
+  throw new Error(`--session must be one of: ${SESSIONS.join(", ")}`);
+}
+/** Trading session. Only limit orders execute outside regular hours. */
+const SESSION = (sessionArg as OrderMarketHours) ?? "regular_hours";
 
 const rh = new RobinhoodClient();
 await rh.restoreSession();
@@ -61,12 +69,28 @@ if (tradability?.short_selling_tradability !== "tradable") {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Price the order. Only limit orders execute outside regular hours, so this
+// 3. Check which session is actually live, so the order is tagged correctly.
+//    An order tagged to the wrong session queues instead of executing.
+// ---------------------------------------------------------------------------
+const hours = await rh.getMarketHours();
+console.log(
+  hours.is_open
+    ? `market: trading day — regular ${hours.opens_at} to ${hours.closes_at}`
+    : "market: NOT a trading day (weekend or holiday) — orders will queue",
+);
+console.log(`session: ${SESSION}`);
+
+// ---------------------------------------------------------------------------
+// 4. Price the order. Only limit orders execute outside regular hours, so this
 //    example always uses a limit and names the session explicitly.
 // ---------------------------------------------------------------------------
 const [quote] = await rh.getQuotes([SYMBOL]);
 const bid = Number(quote?.bid_price);
 const ask = Number(quote?.ask_price);
+// Off-hours the book can be empty, which would produce a nonsense limit price.
+if (!(bid > 0) || !(ask > 0)) {
+  throw new Error(`No two-sided market for ${SYMBOL} right now (bid ${bid} / ask ${ask}).`);
+}
 // Marketable: a short sells into the bid, a cover buys from the ask.
 const shortLimit = Number((bid - 0.05).toFixed(2));
 const coverLimit = Number((ask + 0.05).toFixed(2));
@@ -116,16 +140,34 @@ if (!PLACE) {
     `short: state=${shortFilled.state} filled=${shortFilled.cumulative_quantity} @ ${shortFilled.average_price}`,
   );
 
+  let openQuantity = Number(shortFilled.cumulative_quantity ?? 0);
+
   if (shortFilled.state !== "filled") {
-    // Nothing was opened, so there is nothing to cover. Clean up a resting order.
-    if (shortFilled.cancel) await rh.cancelStockOrder(short.id);
+    // Not filled *as of the last poll* — but it may fill between that poll and
+    // the cancel, so never assume the cancel means nothing was opened. Cancel
+    // best-effort, then re-read the order and go by what actually executed.
+    if (shortFilled.cancel) {
+      try {
+        await rh.cancelStockOrder(short.id);
+      } catch (err) {
+        console.warn(`cancel failed (it may have just filled): ${(err as Error).message}`);
+      }
+    }
+    const settled = await rh.getStockOrder(short.id);
+    openQuantity = Number(settled.cumulative_quantity ?? 0);
+    console.log(`after cancel: state=${settled.state} filled=${settled.cumulative_quantity}`);
+  }
+
+  if (openQuantity === 0) {
     console.log("short did not fill — nothing to cover.");
   } else {
     // -----------------------------------------------------------------------
     // 6. Cover with an ordinary buy. Robinhood recognises it as closing the
     //    short and stamps `position_effect: "close"` on the order itself.
     // -----------------------------------------------------------------------
-    const cover = await rh.orderStock(SYMBOL, "buy", QUANTITY, {
+    // Cover exactly what was opened — a partial fill must not be over- or
+    // under-bought, which would leave a long or a residual short.
+    const cover = await rh.orderStock(SYMBOL, "buy", openQuantity, {
       limitPrice: coverLimit,
       timeInForce: "gfd",
       marketHours: SESSION,
@@ -136,11 +178,20 @@ if (!PLACE) {
       `cover: state=${coverFilled.state} filled=${coverFilled.cumulative_quantity} @ ${coverFilled.average_price}`,
     );
 
-    if (coverFilled.state !== "filled") {
-      throw new Error("COVER DID NOT FILL — an open short position remains. Close it manually.");
+    const stillShort = openQuantity - Number(coverFilled.cumulative_quantity ?? 0);
+    if (stillShort > 0) {
+      // Loud and unambiguous: this is real, unbounded-risk exposure.
+      console.error(`
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!! OPEN SHORT POSITION REMAINS: ${stillShort} ${SYMBOL}
+!!! The cover did not fully fill (state=${coverFilled.state}).
+!!! Buy ${stillShort} ${SYMBOL} to close it, or do it in the app NOW.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`);
+      throw new Error(`Cover incomplete — ${stillShort} ${SYMBOL} still short.`);
     }
 
-    const pnl = (Number(shortFilled.average_price) - Number(coverFilled.average_price)) * QUANTITY;
+    const pnl =
+      (Number(shortFilled.average_price) - Number(coverFilled.average_price)) * openQuantity;
     console.log(`\nround trip complete — P&L ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} before fees`);
   }
 }

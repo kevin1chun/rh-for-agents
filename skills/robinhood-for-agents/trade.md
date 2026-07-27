@@ -24,7 +24,7 @@ Extract from the user's message:
 - Side — `buy`, `sell`, or `sell_short`. "Sell" means **close a long**; only open a short when the user asked for a **short**, and say so explicitly when you confirm (see [Short selling](#short-selling))
 - Quantity or dollar amount
 - Order type (market/limit/stop) and prices
-- Trading session — regular hours, extended hours, or the 24 Hour Market. If the user didn't say and the market is closed, **ask**: a regular-hours order placed after the close queues for the next open instead of executing
+- Trading session — regular hours, extended hours, or the 24 Hour Market. **Do not guess from the clock** — call `robinhood_get_market_hours` (or `rh.getMarketHours()`) to see which session is live; local time is wrong across time zones, weekends, and holidays. If the user didn't say and the market is closed, ask which session they want: a regular-hours order placed after the close queues for the next open instead of executing, and only limit orders execute outside regular hours
 - Asset type (stock/option/crypto)
 
 ### Step 3: Review the order (pre-trade simulation — places nothing)
@@ -70,7 +70,7 @@ bun -e '
 import { getClient } from "robinhood-for-agents";
 const rh = getClient();
 await rh.restoreSession();
-const order = await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd", accountNumber: "ACCT" });
+const order = await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd", marketHours: "regular_hours", accountNumber: "ACCT" });
 console.log(JSON.stringify(order, null, 2));
 '
 ```
@@ -80,8 +80,8 @@ Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeIn
 - Market order: omit `limitPrice` and `stopPrice`
 - Limit order: set `limitPrice`
 - Stop-limit: set both `stopPrice` and `limitPrice`
-- Trailing stop: set `trailAmount` + `trailType` ("percentage" or "price")
-- Trading session: `marketHours` is `"regular_hours"`, `"extended_hours"`, or `"all_day_hours"` (the 24 Hour Market). Only **limit** orders execute outside regular hours — a market order tagged to a regular session after the close just queues for the next open. The MCP tool requires `market_hours` explicitly.
+- Trailing stop: set `trailAmount` + `trailType` (`"percentage"` or `"amount"` — `"amount"` is a dollar trail; anything else is treated as a percentage)
+- Trading session: `marketHours` is `"regular_hours"`, `"extended_hours"`, or `"all_day_hours"` (the 24 Hour Market). **Always pass it explicitly** — the MCP tool requires it, and the client library falls back to regular hours when it is omitted, which after the close means the order queues for the next open instead of executing. Only **limit** orders execute outside regular hours; a market, stop, or trailing order tagged to another session is rejected.
 
 ### Short selling
 

@@ -119,6 +119,14 @@ vi.mock("../../src/client/index.js", () => {
       .fn()
       .mockResolvedValue([{ symbol: "AAPL", data_points: [{ begins_at: "2026-07-14" }] }]),
     getTradability: vi.fn().mockResolvedValue([{ symbol: "AAPL", tradeable: true }]),
+    getMarketHours: vi.fn().mockResolvedValue({
+      is_open: true,
+      date: "2026-07-27",
+      opens_at: "2026-07-27T13:30:00Z",
+      closes_at: "2026-07-27T20:00:00Z",
+      extended_opens_at: "2026-07-27T11:00:00Z",
+      extended_closes_at: "2026-07-28T00:00:00Z",
+    }),
     getWatchlists: vi
       .fn()
       .mockResolvedValue([
@@ -307,9 +315,9 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 describe("real SDK smoke — registerTool + outputSchema end-to-end", () => {
-  it("lists all 49 tools without throwing (forces JSON-schema conversion)", async () => {
+  it("lists all 50 tools without throwing (forces JSON-schema conversion)", async () => {
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(49);
+    expect(tools).toHaveLength(50);
     for (const t of tools) {
       expect(t.outputSchema, `${t.name} missing outputSchema`).toBeDefined();
       expect(t.title, `${t.name} missing title`).toBeTruthy();

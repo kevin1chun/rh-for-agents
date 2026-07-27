@@ -53,6 +53,50 @@ export function registerMarketTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "robinhood_get_market_hours",
+    {
+      title: "Get Market Hours",
+      description:
+        "Get market hours for a date: whether it is a trading day, and when the regular and extended sessions open and close (ISO timestamps). Call this before placing an order when you are unsure which session is live — robinhood_place_stock_order requires an explicit market_hours, and guessing from the local clock gets it wrong across time zones, weekends, and holidays.",
+      inputSchema: {
+        date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD")
+          .optional()
+          .describe("Date as YYYY-MM-DD. Defaults to today in US market time (ET)."),
+        market: z
+          .string()
+          .optional()
+          .describe('Market MIC code. Defaults to "XNYS" (NYSE, the US equities calendar).'),
+      },
+      outputSchema: {
+        is_open: z.boolean(),
+        date: z.string().optional(),
+        opens_at: z.unknown(),
+        closes_at: z.unknown(),
+        extended_opens_at: z.unknown(),
+        extended_closes_at: z.unknown(),
+        note: z.string(),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ date, market }) => {
+      try {
+        const rh = await getAuthenticatedRh();
+        const hours = await rh.getMarketHours({ date, market });
+        return structured({
+          ...hours,
+          note: hours.is_open
+            ? "Trading day. Times are ISO-8601 UTC. 'opens_at'/'closes_at' bound the regular_hours session; 'extended_opens_at'/'extended_closes_at' bound extended_hours. The 24 Hour Market (all_day_hours) runs outside both, Sunday evening through Friday evening ET."
+            : "NOT a trading day (weekend or holiday) — session times are null. An order placed for this date queues until the next trading day.",
+        });
+      } catch (e) {
+        return textError(String(e));
+      }
+    },
+  );
+
+  server.registerTool(
     "robinhood_get_indexes",
     {
       title: "Get Market Indexes",

@@ -325,7 +325,7 @@ Pre-trade simulation for single/multi-leg option orders — places **nothing**. 
 - `limit_price` (number, optional), `stop_price` (number, optional)
 - `trail_amount` (number, optional), `trail_type` ("percentage"/"amount", default: "percentage")
 - `account_number` (string, required), `time_in_force` ("gtc"/"gfd", **required**)
-- `market_hours` ("regular_hours"/"extended_hours"/"all_day_hours", **required** — no default; an order tagged to the wrong session silently queues instead of executing). `all_day_hours` is the 24 Hour Market. Only limit orders execute outside regular hours. (Replaces the former `extended_hours` boolean.)
+- `market_hours` ("regular_hours"/"extended_hours"/"all_day_hours", **required** — no default; an order tagged to the wrong session silently queues instead of executing). `all_day_hours` is the 24 Hour Market. Only limit orders execute outside regular hours — a market, stop, or trailing order tagged to another session is rejected. Use `robinhood_get_market_hours` to check which session is live instead of guessing. (Replaces the former `extended_hours` boolean.)
 
 **Short selling:** `sell` only closes an existing long — selling stock you do not own is rejected with `Not enough shares to sell.` Open a short with `side: "sell_short"` (margin-enabled account, whole shares only; a cash account is rejected with `You need to have margin investing enabled to short.`). Outside regular hours set `market_hours` to `extended_hours` (or `all_day_hours`), or the order is rejected with `It's after market close. To place this short sell order, change your trading session to extended hours.` There is no separate cover side — close a short with an ordinary `buy`.
 
@@ -366,6 +366,17 @@ Get top movers by category.
 **Parameters:**
 - `category` (enum: "top_movers", "sp500", "top_100", default: "top_movers")
 - `direction` (enum: "up", "down") — required when `category: "sp500"`, ignored otherwise
+
+### robinhood_get_market_hours
+Market hours for a date: whether it is a trading day, and when the regular and extended sessions open and close.
+
+**Parameters:**
+- `date` (string, optional) — `YYYY-MM-DD`. Defaults to today in US market time (ET), not the caller's local date
+- `market` (string, optional) — MIC code, default `"XNYS"`
+
+**Response:** `{ "is_open": true, "date": "...", "opens_at": "...", "closes_at": "...", "extended_opens_at": "...", "extended_closes_at": "...", "note": "..." }` (ISO-8601 UTC; session times are null when `is_open` is false)
+
+Call this before placing an order when you are unsure which session is live — `robinhood_place_stock_order` requires an explicit `market_hours`, and inferring it from the local clock is wrong across time zones, weekends, and holidays.
 
 ### robinhood_get_indexes
 Get all tradable market indexes (SPX, NDX, VIX, RUT, XSP, …).

@@ -85,7 +85,7 @@ src/server/                    <- robinhood-for-agents MCP server
 │   ├── detect.ts             <- Agent detection
 │   ├── paths.ts              <- Package/bin path resolution
 │   └── agents/               <- Agent-specific config generators
-└── tools/                     <- 49 MCP tools across 12 modules
+└── tools/                     <- 50 MCP tools across 12 modules
     ├── auth.ts               <- browser_login, check_session
     ├── portfolio.ts          <- get_portfolio, get_equity_positions, get_accounts, get_account
     ├── stocks.ts             <- get_stock_quote, get_historicals, get_fundamentals, get_short_interest,
@@ -400,7 +400,7 @@ Every account-scoped method accepts `accountNumber?: string`:
 - `buildHoldings({ accountNumber })` -- P&L for specific account
 - Omitted -> default account
 
-## MCP Tools (49 total)
+## MCP Tools (50 total)
 
 Each tool accesses the client via the `getClient()` singleton. Tools are registered by module in `src/server/tools/`:
 
@@ -412,14 +412,14 @@ Each tool accesses the client via the `getClient()` singleton. Tools are registe
 | `options.ts` (4) | `get_options`, `get_option_positions`, `get_option_orders`, `get_option_historicals` |
 | `crypto.ts` (1) | `get_crypto` |
 | `orders.ts` (6) | `place_stock_order`, `place_option_order`, `place_crypto_order`, `get_orders`, `cancel_order`, `get_order_status` |
-| `markets.ts` (3) | `get_movers`, `get_indexes`, `get_index_quotes` |
+| `markets.ts` (4) | `get_movers`, `get_market_hours`, `get_indexes`, `get_index_quotes` |
 | `watchlists.ts` (12) | `get_watchlists`, `get_watchlist_items`, `get_popular_watchlists`, `get_option_watchlist`, `create_watchlist`, `update_watchlist`, `add_to_watchlist`, `remove_from_watchlist`, `follow_watchlist`, `unfollow_watchlist`, `add_option_to_watchlist`, `remove_option_from_watchlist` |
 | `scanners.ts` (2) | `get_scans`, `get_scanner_filter_specs` |
 | `pnl.ts` (2) | `get_realized_pnl`, `get_pnl_trade_history` |
 | `review.ts` (2) | `review_equity_order`, `review_option_order` |
 | `tax-lots.ts` (1) | `get_equity_tax_lots` |
 
-The [README](../README.md#mcp-tools-49) describes each tool; [`skills/robinhood-for-agents/reference.md`](../skills/robinhood-for-agents/reference.md) documents parameters and response shapes; [`skills/robinhood-for-agents/client-api.md`](../skills/robinhood-for-agents/client-api.md) maps each tool to the client methods it wraps.
+The [README](../README.md#mcp-tools-50) describes each tool; [`skills/robinhood-for-agents/reference.md`](../skills/robinhood-for-agents/reference.md) documents parameters and response shapes; [`skills/robinhood-for-agents/client-api.md`](../skills/robinhood-for-agents/client-api.md) maps each tool to the client methods it wraps.
 
 ## Order Placement
 
@@ -454,13 +454,17 @@ buy to cover a short   -> side: "buy"                        (server stamps posi
 
 Both fields are required together for a short: `side: "sell"` alone on an account with no shares is rejected with `Not enough shares to sell.`, and either of `sell_short` / `position_effect` without the other returns `This type of trade is invalid.` `order_form_type` (`"short_selling"`) is derived server-side and deliberately not sent. There is no cover side — `buy_to_cover` is not a valid choice for the field.
 
-Shorting requires a margin-enabled account (a cash account is rejected with `You need to have margin investing enabled to short.`) and whole shares. `orderStock()` sets `position_effect` **only** for `sell_short`, leaving ordinary buy/sell payloads exactly as Robinhood's own client sends them.
+Shorting requires a margin-enabled account (a cash account is rejected with `You need to have margin investing enabled to short.`) and whole shares. `orderStock()` sets `position_effect` **only** for `sell_short`, so an ordinary buy/sell payload from the client library is byte-identical to what it sent before. (Orders placed through the MCP tool always carry `market_hours`, because the tool requires it — matching what Robinhood's own client sends on every order.)
+
+Order writes resolve the symbol with `resolveInstrumentBySymbol()`, an **exact** match that refuses ambiguous tickers, never `findInstruments()[0]` — the first hit of a fuzzy `?query=` search can be a same-prefix or relisted/OTC duplicate. `reviewEquityOrder()` uses the same resolver, so a review and the order it authorises cannot resolve to different securities.
 
 ### Trading Sessions
 
 `market_hours` tags an order to a session: `regular_hours` (09:30–16:00 ET), `extended_hours` (pre/post-market), or `all_day_hours` (the 24 Hour Market). On the wire `extended_hours` is exactly `market_hours !== "regular_hours"`, so `orderStock()` derives the boolean from `marketHours` and throws if a caller passes both with contradictory values.
 
-Only limit orders execute outside regular hours. Short sales are session-scoped: outside regular hours the API rejects them unless the session is named (`It's after market close. To place this short sell order, change your trading session to extended hours.`), so `orderStock()` always sends an explicit `market_hours` for `sell_short`. The `robinhood_place_stock_order` MCP tool makes `market_hours` **required** with no default — an order tagged to the wrong session silently queues for the next open rather than executing, which is a failure that looks like success.
+Only limit orders execute outside regular hours — `orderStock()` rejects a market, stop, or trailing order tagged to a non-regular session before any network call (scoped to an explicit `marketHours`, so legacy `extendedHours` callers are untouched). Short sales are session-scoped: outside regular hours the API rejects them unless the session is named (`It's after market close. To place this short sell order, change your trading session to extended hours.`), so `orderStock()` always sends an explicit `market_hours` for `sell_short`. The `robinhood_place_stock_order` MCP tool makes `market_hours` **required** with no default — an order tagged to the wrong session silently queues for the next open rather than executing, which is a failure that looks like success. Because a required parameter the caller has to guess is no safer than a default, `robinhood_get_market_hours` ships alongside it: the agent can ask which session is live instead of inferring it from a local clock that is wrong across time zones, weekends, and holidays.
+
+`orderOption()` does not yet expose a session and is fixed to `regular_hours`.
 
 ### Safety Model
 

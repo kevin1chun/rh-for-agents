@@ -5,9 +5,9 @@
 [![ClawHub](https://img.shields.io/badge/ClawHub-robinhood--for--agents-blue)](https://clawhub.ai/kevin1chun/robinhood-for-agents)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Robinhood for AI agents — MCP server with 49 tools + TypeScript client library.
+Robinhood for AI agents — MCP server with 50 tools + TypeScript client library.
 
-- **49 MCP tools** for any MCP-compatible AI agent
+- **50 MCP tools** for any MCP-compatible AI agent
 - **Unified trading skill** for guided workflows (Claude Code, OpenClaw, [ClawHub](https://clawhub.ai/kevin1chun/robinhood-for-agents))
 - **TypeScript client library** (70+ async methods) for programmatic use
 - **Pluggable token storage** — OS keychain (default) or encrypted file (Docker/headless)
@@ -65,7 +65,7 @@ npx robinhood-for-agents install --skills
 
 From a source checkout, register the server as `claude mcp add -s user robinhood-for-agents -- bun run /path/to/checkout/bin/robinhood-for-agents.ts` instead.
 
-Restart Claude Code to pick up the changes. Claude Code supports the unified trading skill in addition to the 49 MCP tools — see [Skill](#skill).
+Restart Claude Code to pick up the changes. Claude Code supports the unified trading skill in addition to the 50 MCP tools — see [Skill](#skill).
 </details>
 
 <details>
@@ -77,7 +77,7 @@ codex mcp add robinhood-for-agents -- bunx robinhood-for-agents
 
 From a source checkout, use `-- bun run /path/to/checkout/bin/robinhood-for-agents.ts` instead.
 
-Restart Codex to pick up the changes. Codex uses all 49 MCP tools directly.
+Restart Codex to pick up the changes. Codex uses all 50 MCP tools directly.
 </details>
 
 <details>
@@ -126,9 +126,9 @@ From a source checkout, use `"command": "bun", "args": ["run", "/absolute/path/t
 
 Start your agent and say "setup robinhood" (or call `robinhood_browser_login` directly). Your browser will open to the real Robinhood login page — log in with your credentials and MFA. The session is cached in your OS keychain and renews itself: the client refreshes the token a day before it expires, and again on any 401. Regular use keeps you logged in indefinitely — a browser re-login is only needed if the client sits unused long enough for the refresh chain to lapse. Ask your agent to run `robinhood_check_session` if you're unsure.
 
-## MCP Tools (49)
+## MCP Tools (50)
 
-All 49 tools work with every MCP-compatible agent.
+All 50 tools work with every MCP-compatible agent.
 
 | Tool | Description |
 |------|-------------|
@@ -149,6 +149,7 @@ All 49 tools work with every MCP-compatible agent.
 | `robinhood_get_earnings_calendar` | Market-wide earnings calendar for a day window |
 | `robinhood_get_news` | News, analyst ratings, earnings |
 | `robinhood_get_movers` | Market movers and popular stocks |
+| `robinhood_get_market_hours` | Market hours for a date: is it a trading day, when each session opens/closes |
 | `robinhood_get_indexes` | Tradable market indexes (SPX, NDX, VIX, …) |
 | `robinhood_get_index_quotes` | Current values for index symbols |
 | `robinhood_get_options` | Options chain with greeks |
@@ -234,7 +235,7 @@ The skill uses progressive disclosure — `SKILL.md` is the compact router, with
 
 | Feature | Claude Code | Codex | OpenClaw | Other MCP |
 |---------|:-----------:|:-----:|:--------:|:---------:|
-| 49 MCP tools | Yes | Yes | — | Yes |
+| 50 MCP tools | Yes | Yes | — | Yes |
 | Trading skill | Yes | — | Yes | — |
 | ClawHub install | — | — | Yes | — |
 | `onboard` setup | Yes | Yes | Yes | — |
@@ -301,8 +302,9 @@ Token refresh writes re-encrypted tokens back to the file automatically — keep
 - **Pluggable token storage** — `KeychainTokenStore` (OS keychain, default) or `EncryptedFileTokenStore` (AES-256-GCM, for Docker/headless). See [SECURITY.md](docs/SECURITY.md) for the threat model.
 - Fund transfers and bank operations are **blocked** — never exposed
 - Bulk cancel operations are **blocked**
-- All order placements require explicit parameters (no dangerous defaults) — including the trading session, so an order is never silently tagged to the wrong one
+- All order placements require explicit parameters (no dangerous defaults). `robinhood_place_stock_order` additionally requires the trading session — it has no default, so an agent cannot silently tag an order to the wrong one. (In the client library, `marketHours` is optional for backwards compatibility and falls back to regular hours; pass it explicitly.)
 - Opening a short requires the explicit `sell_short` side; a plain `sell` can only close a long, so a mis-parsed "sell" can never open an unbounded-risk position
+- Order writes resolve the symbol by exact match, never a fuzzy search, so an order cannot land on a same-prefix or relisted duplicate ticker
 - Skills always confirm with the user before placing orders
 - See [ACCESS_CONTROLS.md](docs/ACCESS_CONTROLS.md) for the full risk matrix
 - For multi-agent deployments, see [AGENT-IDENTITY.md](docs/AGENT-IDENTITY.md) for agent identity verification and per-tool authorization patterns

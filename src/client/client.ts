@@ -20,7 +20,7 @@ import {
   restoreSessionFromToken,
 } from "./auth.js";
 import { NotFoundError, NotLoggedInError } from "./errors.js";
-import { requestDelete, requestGet, requestPatch, requestPost } from "./http.js";
+import { parseOne, requestDelete, requestGet, requestPatch, requestPost } from "./http.js";
 import { SCANNER_FILTER_SPECS } from "./scanner-filter-specs.js";
 import { createSession, type RobinhoodSession } from "./session.js";
 import { createTokenStore, type TokenStore } from "./token-store.js";
@@ -38,6 +38,7 @@ import type {
   IndexValue,
   Instrument,
   InvestmentProfile,
+  MarketHours,
   News,
   OptionAggregatePosition,
   OptionChain,
@@ -71,6 +72,7 @@ import type {
   WatchlistItem,
   WatchlistItemRef,
 } from "./types.js";
+import { MarketHoursSchema } from "./types.js";
 import * as urls from "./urls.js";
 
 const MULTI_ACCOUNT_PARAMS: Record<string, string> = {
@@ -917,6 +919,21 @@ export class RobinhoodClient {
     const extendedHours =
       marketHours != null ? marketHours !== "regular_hours" : (opts?.extendedHours ?? false);
 
+    // Only plain limit orders execute outside regular hours — Robinhood rejects
+    // market, stop, and trailing orders tagged to another session. Caught here
+    // so the caller gets the reason instead of an opaque API rejection.
+    // Scoped to an explicit `marketHours`: a legacy `extendedHours: true` caller
+    // keeps whatever behaviour the server already gave them.
+    if (marketHours != null && marketHours !== "regular_hours") {
+      const priced = opts?.limitPrice != null;
+      const triggered = opts?.stopPrice != null || opts?.trailAmount != null;
+      if (!priced || triggered) {
+        throw new Error(
+          `Only limit orders execute in ${marketHours} — market, stop, and trailing-stop orders are regular_hours only`,
+        );
+      }
+    }
+
     // Fractional orders must be market orders with gfd
     const isFractional = !Number.isInteger(quantity);
     if (isFractional) {
@@ -932,10 +949,13 @@ export class RobinhoodClient {
       }
     }
 
-    // Find the instrument URL
-    const insts = await this.findInstruments(sym);
-    if (insts.length === 0) throw new NotFoundError(`Instrument not found: ${sym}`);
-    const inst = insts[0] as Instrument;
+    // Resolve the instrument by EXACT symbol match. `findInstruments()` is a
+    // fuzzy `?query=` search whose first hit can be a prefix match or an
+    // OTC/relisted duplicate of the same ticker — never acceptable on a write,
+    // and doubly so for `sell_short`, where there is no "not enough shares"
+    // backstop to catch a wrong instrument. This is the same resolver
+    // `reviewEquityOrder()` uses, so review and place cannot disagree.
+    const inst = await this.resolveInstrumentBySymbol(sym);
 
     // Determine order type and trigger from price params
     let orderType: string;
@@ -1304,6 +1324,33 @@ export class RobinhoodClient {
       `Ambiguous symbol "${sym}": ${exact.length} instruments share this ticker` +
         (active.length > 1 ? ` (${active.length} active)` : "") +
         " — refusing to guess.",
+    );
+  }
+
+  /**
+   * Market hours for a given date (default: the US equities market, today in
+   * ET). `is_open` reports whether that date is a trading day at all — a
+   * weekend or holiday returns `false` with null session times.
+   *
+   * Order placement requires naming a trading session, so this is how a caller
+   * finds out which one is live instead of guessing from the local clock.
+   */
+  async getMarketHours(opts?: { market?: string; date?: string }): Promise<MarketHours> {
+    this.requireAuth();
+    const market = opts?.market ?? "XNYS";
+    // Default to "today" in market time — the caller's local date can be a day
+    // off, which is exactly the mistake this method exists to prevent.
+    const date =
+      opts?.date ??
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+    return parseOne(
+      MarketHoursSchema,
+      await requestGet(this.session, urls.marketHours(market, date)),
     );
   }
 
@@ -1772,6 +1819,19 @@ export class RobinhoodClient {
     if (!sym) throw new Error("symbol must be a non-empty string");
     if (!(opts.quantity > 0) || !Number.isFinite(opts.quantity)) {
       throw new Error("quantity must be a positive finite number");
+    }
+    // The review must reject anything the place step would reject, or it hands
+    // the user a clean-looking preview of an order that cannot be placed.
+    if (opts.side === "sell_short" && !Number.isInteger(opts.quantity)) {
+      throw new Error(
+        "Short sales must be whole shares — fractional short selling is not supported",
+      );
+    }
+    if (opts.limitPrice != null && (opts.limitPrice <= 0 || !Number.isFinite(opts.limitPrice))) {
+      throw new Error("limitPrice must be a positive finite number");
+    }
+    if (opts.stopPrice != null && (opts.stopPrice <= 0 || !Number.isFinite(opts.stopPrice))) {
+      throw new Error("stopPrice must be a positive finite number");
     }
     const inst = await this.resolveInstrumentBySymbol(sym);
     const accountNumber = await this.resolveAccountNumber(opts.accountNumber);
