@@ -67,7 +67,7 @@ These operations are **never exposed** through MCP tools or skills.
 ### MCP Tools
 - Order tools require all parameters explicitly (symbol, side, quantity, type)
 - `robinhood_place_stock_order` also requires `market_hours` with no default, since an order tagged to the wrong session silently queues for the next open instead of executing. Use `robinhood_get_market_hours` to find out which session is live rather than guessing from the local clock. (`robinhood_place_option_order` does not yet expose a session and is fixed to regular hours.)
-- Risky positions are never inferred: opening a short requires `side: "sell_short"`, and there is no way to open one by accident with a plain `sell`
+- Risky positions are never inferred: opening a short requires `side: "sell_short"`. A plain `sell` cannot open one even partially — an over-sized sell is rejected in full (`Not enough shares to sell.`) rather than closing the held portion and shorting the rest
 - Order writes resolve symbols by exact match (never a fuzzy search), so a write cannot land on a same-prefix or relisted duplicate ticker; ambiguous tickers are refused rather than guessed
 - Blocked operations return error messages explaining why
 

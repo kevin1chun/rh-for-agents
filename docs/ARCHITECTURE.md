@@ -452,6 +452,8 @@ sell to open a short   -> side: "sell_short" + position_effect: "open"
 buy to cover a short   -> side: "buy"                        (server stamps position_effect: "close")
 ```
 
+A `sell` can never open a short, even partially: selling *more* than the account holds is rejected **in full** with `Not enough shares to sell.` — Robinhood does not route the held portion as a close and the remainder as a short (verified live against a partial holding). That is what makes `sell_short` the only path to an unbounded-risk position.
+
 Both fields are required together for a short: `side: "sell"` alone on an account with no shares is rejected with `Not enough shares to sell.`, and either of `sell_short` / `position_effect` without the other returns `This type of trade is invalid.` `order_form_type` (`"short_selling"`) is derived server-side and deliberately not sent. There is no cover side — `buy_to_cover` is not a valid choice for the field.
 
 Short sales carry constraints beyond the side/effect pair, all verified against the live API and reproduced client-side so the caller gets the reason before an order is attempted:
