@@ -3,16 +3,27 @@
 ## Auth
 
 ### robinhood_check_session
-Check if a Robinhood session is active.
+Check whether there is a *working* Robinhood session. Loads the cached tokens **and probes the API** with them — it does not report healthy merely because tokens exist in the keychain.
 
 **Parameters:** none
 
-**Response:** `{ "status": "logged_in" | "not_authenticated" }`
+**Response:** `{ "status": "logged_in" | "expired" | "unknown" | "not_authenticated", "method": "keychain" | "encrypted_file" | "token", "account_hint": "...1234", "message": "..." }`
+
+| `status` | Meaning | What to do |
+|---|---|---|
+| `logged_in` | verified working; `account_hint` is the masked account number | proceed |
+| `expired` | tokens exist but are dead and automatic refresh could not recover them | run `robinhood_browser_login` |
+| `unknown` | the probe failed for a transient/network reason — the session may well be fine | retry; **do not** assume expired, do not re-login |
+| `not_authenticated` | no tokens in the store at all | run `robinhood_browser_login` |
+
+`account_hint` is present only on `logged_in`; `message` carries the reason on `expired` / `unknown` / `not_authenticated`. This tool makes a live API call, so it is not free — check once at the start of a session, not before every tool call.
 
 ### robinhood_browser_login
-Open Chrome for browser-based Robinhood login. Captures OAuth tokens automatically.
+Open Chrome for browser-based Robinhood login. Captures OAuth tokens automatically. This is the remedy for `robinhood_check_session` returning `expired` or `not_authenticated` — and the *only* remedy; there is no programmatic re-auth.
 
 **Parameters:** none
+
+**Response:** `{ "status": "logged_in", "account_hint": "...1234" }`
 
 **Timeout note for MCP client authors:** this call waits up to 5 minutes server-side for the user to complete login (including MFA) before the OAuth token exchange resolves. Most MCP SDKs default `callTool`'s request timeout to 60 seconds, which is shorter than that — if you're driving this tool programmatically (not through Claude Code, which already handles this), pass a longer per-call timeout (e.g. the TypeScript SDK's `client.callTool(params, resultSchema, { timeout: 330_000 })`) or the call will abort client-side while the user is still mid-login.
 
@@ -30,6 +41,9 @@ Get account details, profile, and investment preferences.
   "investment": { "risk_tolerance": "moderate" }
 }
 ```
+
+### Session errors on any tool
+Tokens renew automatically — proactively ~24h before expiry, and again on a 401. When a tool still returns an error containing `session expired and could not be refreshed`, refresh has already been tried and failed: run `robinhood_browser_login`, don't retry the tool. Refresh tokens are single-use and rotate on every renewal, so avoid driving the same session from a second process (a `bun -e` script alongside this server) — one of them will be poisoned.
 
 ## Account & Portfolio
 

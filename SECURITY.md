@@ -41,6 +41,6 @@ This project follows a defense-in-depth approach:
 - Fund transfers and bank operations are permanently blocked
 - Bulk cancel operations are blocked
 - All order placements require explicit parameters with no dangerous defaults
-- Access tokens expire after ~8.5 days and auto-refresh via the stored refresh token
+- Access-token lifetime varies (~6–8.5 days observed) and tokens auto-refresh via the stored refresh token — proactively ~24h before expiry, and on a 401 as a fallback. Refresh tokens are single-use: each renewal issues a new one and immediately invalidates the old, so re-running browser login revokes any previously copied token family
 
 See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model and [docs/ACCESS_CONTROLS.md](docs/ACCESS_CONTROLS.md) for the risk tiers.

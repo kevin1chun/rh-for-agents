@@ -1,5 +1,7 @@
 # Portfolio — Holdings, P&L, Account Summary
 
+`restoreSession()` loads tokens but does not validate them — a `TokenExpiredError` from any call below means the session is dead and automatic refresh could not recover it; re-authenticate via [setup.md](setup.md) rather than retrying.
+
 ### Fetch Portfolio Data
 
 ```bash

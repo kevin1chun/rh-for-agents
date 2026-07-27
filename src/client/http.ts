@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { redactTokens, scrubSensitiveKeys } from "../redact.js";
-import { APIError, NotFoundError, RateLimitError } from "./errors.js";
+import { APIError, NotFoundError, RateLimitError, TokenExpiredError } from "./errors.js";
 import type { RobinhoodSession } from "./session.js";
 import { trustedOrigins } from "./urls.js";
 
@@ -142,6 +142,14 @@ async function raiseForStatus(response: Response): Promise<void> {
   }
   if (status === 429) {
     throw new RateLimitError(msg, { statusCode: status, responseBody: safeBody });
+  }
+  // A 401 here means automatic refresh already ran and could not recover, so
+  // the session is genuinely unusable. Say that, instead of a bare HTTP 401
+  // that gives the caller no idea a re-login is what's needed.
+  if (status === 401) {
+    throw new TokenExpiredError(
+      `${msg} — session expired and could not be refreshed. Re-authenticate with browser login.`,
+    );
   }
   throw new APIError(msg, { statusCode: status, responseBody: safeBody });
 }

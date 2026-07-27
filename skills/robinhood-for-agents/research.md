@@ -1,5 +1,7 @@
 # Research — Stock Analysis
 
+`restoreSession()` loads tokens but does not validate them — a `TokenExpiredError` from any call below means the session is dead and automatic refresh could not recover it; re-authenticate via [setup.md](setup.md) rather than retrying. (In a parallel `Promise.all`, one expired session fails every branch at once — that is one auth failure, not seven.)
+
 ### Fetch Data (parallel)
 
 ```bash
