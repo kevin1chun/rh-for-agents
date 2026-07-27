@@ -41,6 +41,8 @@ See [client-api.md](client-api.md) for all available methods and signatures.
 3. **Never place orders without user confirmation**
 4. **Fund transfers and bank operations are BLOCKED** — refuse these requests
 5. **Never place bulk cancel operations** — cancel orders one at a time
+6. **Never turn a "sell" into a short.** `sell` closes a long; `sell_short` opens a short with unlimited loss potential. Only short when the user asked to short, and label it **SHORT SELL** when confirming — see [trade.md](trade.md#short-selling)
+7. **Name the trading session.** Outside regular hours, only limit orders execute; an order tagged to the wrong session silently queues for the next open instead of filling
 
 ### BLOCKED Operations (never use)
 - Bulk cancel operations
@@ -54,7 +56,7 @@ See [client-api.md](client-api.md) for all available methods and signatures.
 | Auth / login / connect | [setup.md](setup.md) | "setup robinhood", "connect to robinhood", "robinhood login" |
 | Portfolio / holdings / positions | [portfolio.md](portfolio.md) | "show my portfolio", "my holdings", "account summary" |
 | Stock research / analysis | [research.md](research.md) | "research AAPL", "analyze TSLA", "due diligence on NVDA" |
-| Buy / sell / orders / cancel | [trade.md](trade.md) | "buy 10 shares of AAPL", "sell my TSLA", "cancel my order" |
+| Buy / sell / short / orders / cancel | [trade.md](trade.md) | "buy 10 shares of AAPL", "sell my TSLA", "short 10 SPY", "cancel my order" |
 | Options / calls / puts / chains | [options.md](options.md) | "show AAPL options", "SPX calls", "0DTE options", "covered calls" |
 | Watchlists / lists / "add to my list" | [watchlists.md](watchlists.md) | "my watchlists", "add NVDA to my tech list", "remove TSLA from watchlist" |
 | Scanners / screeners / saved screens | [reference.md](reference.md) | "my scanners", "my saved screens", "what filters can I scan on" |

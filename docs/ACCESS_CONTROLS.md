@@ -46,8 +46,11 @@ Order placement. Requires explicit parameters — no dangerous defaults.
 | Operation | MCP Tool | Skill |
 |-----------|----------|-------|
 | Stock Orders | `robinhood_place_stock_order` | `trade.md` |
+| Short Sales | `robinhood_place_stock_order` (`side: "sell_short"`) | `trade.md` |
 | Option Orders | `robinhood_place_option_order` | `trade.md` |
 | Crypto Orders | `robinhood_place_crypto_order` | `trade.md` |
+
+Short sales sit at the top of this tier: losses are theoretically unbounded, and "sell" in a user's request almost always means *close my position*. Opening a short therefore requires its own side value (`sell_short`) rather than being inferred from an account holding no shares, so a mis-parsed "sell" fails with `Not enough shares to sell.` instead of silently opening a short. The skill requires the confirmation to be labelled **SHORT SELL**.
 
 ### Blocked (Critical Risk)
 These operations are **never exposed** through MCP tools or skills.
@@ -62,8 +65,9 @@ These operations are **never exposed** through MCP tools or skills.
 ## Safety Measures
 
 ### MCP Tools
-- Order tools require all parameters explicitly (symbol, side, quantity, type)
-- No default values that could cause accidental trades
+- Order tools require all parameters explicitly (symbol, side, quantity, type, trading session)
+- No default values that could cause accidental trades — including `market_hours`, since an order tagged to the wrong session silently queues for the next open instead of executing
+- Risky positions are never inferred: opening a short requires `side: "sell_short"`, and there is no way to open one by accident with a plain `sell`
 - Blocked operations return error messages explaining why
 
 ### Skills

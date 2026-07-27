@@ -439,6 +439,29 @@ none                        -> ("market", "immediate") market
 
 Stock order payloads include `order_form_version: 7` (required by the Robinhood API).
 
+### Side Resolution (long vs. short)
+
+Robinhood does not infer a short sale from the absence of a position — a short is its own side value, paired with a `position_effect`:
+
+```
+Intent                 -> wire payload
+──────────────────────────────────────────────────────────
+buy to open a long     -> side: "buy"                        (server derives position_effect)
+sell to close a long   -> side: "sell"                       (server derives position_effect)
+sell to open a short   -> side: "sell_short" + position_effect: "open"
+buy to cover a short   -> side: "buy"                        (server stamps position_effect: "close")
+```
+
+Both fields are required together for a short: `side: "sell"` alone on an account with no shares is rejected with `Not enough shares to sell.`, and either of `sell_short` / `position_effect` without the other returns `This type of trade is invalid.` `order_form_type` (`"short_selling"`) is derived server-side and deliberately not sent. There is no cover side — `buy_to_cover` is not a valid choice for the field.
+
+Shorting requires a margin-enabled account (a cash account is rejected with `You need to have margin investing enabled to short.`) and whole shares. `orderStock()` sets `position_effect` **only** for `sell_short`, leaving ordinary buy/sell payloads exactly as Robinhood's own client sends them.
+
+### Trading Sessions
+
+`market_hours` tags an order to a session: `regular_hours` (09:30–16:00 ET), `extended_hours` (pre/post-market), or `all_day_hours` (the 24 Hour Market). On the wire `extended_hours` is exactly `market_hours !== "regular_hours"`, so `orderStock()` derives the boolean from `marketHours` and throws if a caller passes both with contradictory values.
+
+Only limit orders execute outside regular hours. Short sales are session-scoped: outside regular hours the API rejects them unless the session is named (`It's after market close. To place this short sell order, change your trading session to extended hours.`), so `orderStock()` always sends an explicit `market_hours` for `sell_short`. The `robinhood_place_stock_order` MCP tool makes `market_hours` **required** with no default — an order tagged to the wrong session silently queues for the next open rather than executing, which is a failure that looks like success.
+
 ### Safety Model
 
 ```
@@ -473,6 +496,7 @@ Stock order payloads include `order_form_version: 7` (required by the Robinhood 
 | **EncryptedFileTokenStore for Docker** | AES-256-GCM encrypted file with key in env var or keychain. No need for an auth proxy sidecar. |
 | **No phoenix.robinhood.com** | TLS handshake fails. `api.robinhood.com` has equivalent data. |
 | **Unified order methods** | `orderStock()` with optional params vs 10 separate `orderBuyMarket()` etc. |
+| **`market_hours` required on the MCP tool, optional on the client** | The MCP tool is the agent-facing surface, where a defaulted session is a silent failure mode: an order tagged `regular_hours` after the close queues for the next open instead of executing, and looks placed. Requiring it also makes a stale caller that passes only the old `extended_hours` fail loudly on a missing parameter. The client library keeps `extendedHours` working so programmatic callers are not broken. |
 | **Vitest over bun test** | Proper module isolation via worker processes. Critical for mocking. |
 | **Zod schemas** | Type API response shapes for TS consumers -- the client casts rather than `.parse()`s, so zero runtime overhead (caveat: an under-declared schema silently hides real response fields from the TS types without erroring). Opt-in `parseOne`/`parseArray` helpers in `src/client/http.ts` runtime-validate when a caller wants it. MCP tool-call parameters, by contrast, ARE runtime-validated via the same library. |
 | **ESM-only** | Bun is ESM-native, no CJS compatibility needed. |

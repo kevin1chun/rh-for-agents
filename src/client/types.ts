@@ -1294,9 +1294,17 @@ export interface RealizedPnlData {
 // account_number is ever echoed (by the MCP layer).
 // ---------------------------------------------------------------------------
 
+/**
+ * Trading session an equity order is tagged to (the order's `market_hours`
+ * field — distinct from `MarketHours`, which is a market's hours of operation).
+ * `all_day_hours` is Robinhood's 24 Hour Market (overnight). The `extended_hours`
+ * boolean on the wire is simply `market_hours !== "regular_hours"`.
+ */
+export type OrderMarketHours = "regular_hours" | "extended_hours" | "all_day_hours";
+
 export interface EquityOrderReview {
   symbol: string;
-  side: "buy" | "sell";
+  side: "buy" | "sell" | "sell_short";
   /** derived from (limit_price, stop_price): market | limit | stop_loss | stop_limit */
   type: string;
   quantity: number;

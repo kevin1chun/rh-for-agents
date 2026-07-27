@@ -21,9 +21,10 @@ If multiple accounts, **ask the user which account to use**. Never pick on their
 ### Step 2: Parse the Request
 Extract from the user's message:
 - Symbol (e.g., AAPL, BTC)
-- Side (buy/sell)
+- Side — `buy`, `sell`, or `sell_short`. "Sell" means **close a long**; only open a short when the user asked for a **short**, and say so explicitly when you confirm (see [Short selling](#short-selling))
 - Quantity or dollar amount
 - Order type (market/limit/stop) and prices
+- Trading session — regular hours, extended hours, or the 24 Hour Market. If the user didn't say and the market is closed, **ask**: a regular-hours order placed after the close queues for the next open instead of executing
 - Asset type (stock/option/crypto)
 
 ### Step 3: Review the order (pre-trade simulation — places nothing)
@@ -48,12 +49,15 @@ Present the review output — this is a **stop, not an internal step**. Never ch
 Order Preview (simulated — nothing placed yet):
   Action: BUY 10 shares of AAPL @ $150.00 limit
   Current price: $150.00   Estimated cost: ~$1,500.00
+  Session: regular hours
   Price-collar check: OK (or: ⚠️ EXTREMELY_MARKETABLE_LIMIT_PRICE — price looks far off market)
   Account: <account_number>
 
 Proceed? (yes/no)
 ```
 Wait for the user to explicitly confirm. If the quote in the review has since gone stale, re-run the review before placing.
+
+State the session in the preview whenever it isn't regular hours, and say plainly what it means — "extended hours: limit orders only" or "queues for the next open". A short must be labelled **SHORT SELL**, never just "sell".
 
 ### Step 5: Place Order (after user confirms)
 
@@ -71,12 +75,40 @@ console.log(JSON.stringify(order, null, 2));
 '
 ```
 
-Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeInForce, extendedHours }`
+Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeInForce, marketHours, extendedHours }`
 
 - Market order: omit `limitPrice` and `stopPrice`
 - Limit order: set `limitPrice`
 - Stop-limit: set both `stopPrice` and `limitPrice`
 - Trailing stop: set `trailAmount` + `trailType` ("percentage" or "price")
+- Trading session: `marketHours` is `"regular_hours"`, `"extended_hours"`, or `"all_day_hours"` (the 24 Hour Market). Only **limit** orders execute outside regular hours — a market order tagged to a regular session after the close just queues for the next open. The MCP tool requires `market_hours` explicitly.
+
+### Short selling
+
+`side: "sell"` only closes a long position — selling stock the account does not hold fails with `Not enough shares to sell.` Opening a short is a different side:
+
+| Intent | Side |
+|---|---|
+| Open a short | `sell_short` |
+| Cover a short | `buy` (there is no separate cover side) |
+
+```typescript
+// Open
+await rh.orderStock("AAPL", "sell_short", 10, { limitPrice: 150.0, timeInForce: "gfd", marketHours: "regular_hours", accountNumber: "ACCT" });
+// Cover
+await rh.orderStock("AAPL", "buy", 10, { limitPrice: 145.0, timeInForce: "gfd", marketHours: "regular_hours", accountNumber: "ACCT" });
+```
+
+Requirements and failure modes:
+
+| Condition | Result |
+|---|---|
+| Margin-enabled account | Required — a cash account is rejected with `You need to have margin investing enabled to short.` |
+| Whole shares | Required — no fractional shorts |
+| Outside regular hours | Pass `marketHours: "extended_hours"` (or `"all_day_hours"`), else `It's after market close. To place this short sell order, change your trading session to extended hours.` |
+| Symbol not shortable | Check `short_selling_tradability` via `robinhood_get_equity_tradability` first |
+
+**Confirm shorts explicitly.** A short has unlimited loss potential and is easy to conflate with selling a holding. Before placing, verify the user asked to *open a short* — if they said "sell my AAPL" and the account holds AAPL, that is a `sell`, not a `sell_short`. Label it **SHORT SELL** in the confirmation, and state that closing it requires buying the shares back.
 
 ## Option Orders
 

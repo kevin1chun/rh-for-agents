@@ -158,7 +158,7 @@ All 49 tools work with every MCP-compatible agent.
 | `robinhood_get_crypto` | Crypto positions and quotes |
 | `robinhood_review_equity_order` | Simulate a stock order before placing (price-collar check, live quote) |
 | `robinhood_review_option_order` | Simulate an option order before placing (per-leg data, collateral) |
-| `robinhood_place_stock_order` | Place stock orders (market/limit/stop/trailing) |
+| `robinhood_place_stock_order` | Place stock orders (market/limit/stop/trailing, incl. `sell_short`) |
 | `robinhood_place_option_order` | Place option orders |
 | `robinhood_place_crypto_order` | Place crypto orders |
 | `robinhood_get_orders` | View order history |
@@ -181,6 +181,33 @@ All 49 tools work with every MCP-compatible agent.
 | `robinhood_get_scanner_filter_specs` | Filter vocabulary for building scans (RSI/MACD/fundamentals/…) |
 | `robinhood_get_realized_pnl` | Realized P&L over a window, bucketed (computed FIFO; equity + crypto) |
 | `robinhood_get_pnl_trade_history` | Per-trade realized P&L (computed FIFO; equity + crypto) |
+
+## Placing Orders
+
+Every order goes through **review → confirm → place**. `robinhood_review_equity_order` simulates the order over read-only endpoints (live quote + a reproduction of Robinhood's price collar) and places nothing; show its result to the user, get an explicit confirmation, then call `robinhood_place_stock_order`.
+
+**Side** — `buy`, `sell`, or `sell_short`:
+
+| Intent | Side | Notes |
+|---|---|---|
+| Open / add to a long | `buy` | Fractional shares supported |
+| Close a long | `sell` | Only sells shares you hold |
+| **Open a short** | `sell_short` | Margin-enabled account, whole shares only |
+| **Cover a short** | `buy` | No separate cover side exists |
+
+`sell` closes a long position — it does **not** open a short. Selling stock the account doesn't hold is rejected by Robinhood with `Not enough shares to sell.` Use `sell_short` to open a short; a cash account is rejected with `You need to have margin investing enabled to short.` Shorting carries unlimited loss potential, so confirm the user asked to open a *short* rather than to sell a holding.
+
+**Trading session** — `market_hours` is **required**, with no default:
+
+| Value | Window | Executes |
+|---|---|---|
+| `regular_hours` | 09:30–16:00 ET | All order types |
+| `extended_hours` | Pre / post-market | Limit orders only |
+| `all_day_hours` | 24 Hour Market (overnight) | Limit orders only |
+
+There's deliberately no default because an order tagged to the wrong session **silently queues for the next open instead of executing** — a failure that looks like success. A short sell placed outside regular hours is rejected unless the session says so.
+
+See [`examples/short-selling.ts`](examples/short-selling.ts) for a runnable walkthrough, and [`skills/robinhood-for-agents/trade.md`](skills/robinhood-for-agents/trade.md) for the full order flow.
 
 ## Skill
 
@@ -274,7 +301,8 @@ Token refresh writes re-encrypted tokens back to the file automatically — keep
 - **Pluggable token storage** — `KeychainTokenStore` (OS keychain, default) or `EncryptedFileTokenStore` (AES-256-GCM, for Docker/headless). See [SECURITY.md](docs/SECURITY.md) for the threat model.
 - Fund transfers and bank operations are **blocked** — never exposed
 - Bulk cancel operations are **blocked**
-- All order placements require explicit parameters (no dangerous defaults)
+- All order placements require explicit parameters (no dangerous defaults) — including the trading session, so an order is never silently tagged to the wrong one
+- Opening a short requires the explicit `sell_short` side; a plain `sell` can only close a long, so a mis-parsed "sell" can never open an unbounded-risk position
 - Skills always confirm with the user before placing orders
 - See [ACCESS_CONTROLS.md](docs/ACCESS_CONTROLS.md) for the full risk matrix
 - For multi-agent deployments, see [AGENT-IDENTITY.md](docs/AGENT-IDENTITY.md) for agent identity verification and per-tool authorization patterns

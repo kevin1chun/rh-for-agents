@@ -49,6 +49,7 @@ import type {
   OptionOrderReviewLeg,
   OptionPosition,
   OptionWatchlistContract,
+  OrderMarketHours,
   Portfolio,
   PortfolioLive,
   Position,
@@ -837,9 +838,27 @@ export class RobinhoodClient {
     return (await requestGet(this.session, urls.stockOrder(orderId))) as StockOrder;
   }
 
+  /**
+   * Place an equity order.
+   *
+   * `side: "sell_short"` opens a short position. Robinhood models a short as its
+   * own side value, NOT as a plain `sell` — a `sell` with no shares to deliver is
+   * rejected with `Not enough shares to sell.`, and `sell_short` must be paired
+   * with `position_effect: "open"` or the API returns
+   * `This type of trade is invalid.` (both are sent for you). Shorting requires a
+   * margin-enabled account; a cash account is rejected with
+   * `You need to have margin investing enabled to short.`
+   *
+   * There is no separate cover side — `buy_to_cover` is not a valid choice.
+   * Close a short with an ordinary `buy`.
+   *
+   * `opts.marketHours` names the trading session — `regular_hours`,
+   * `extended_hours`, or `all_day_hours` (Robinhood's 24 Hour Market). Only
+   * limit orders execute outside regular hours.
+   */
   async orderStock(
     symbol: string,
-    side: "buy" | "sell",
+    side: "buy" | "sell" | "sell_short",
     quantity: number,
     opts?: {
       limitPrice?: number;
@@ -848,6 +867,13 @@ export class RobinhoodClient {
       trailType?: "percentage" | "amount";
       timeInForce?: string;
       extendedHours?: boolean;
+      /**
+       * Trading session. `all_day_hours` is Robinhood's 24 Hour Market.
+       * Supersedes `extendedHours`, which is derived from it; passing both with
+       * conflicting values throws. When omitted, only `extendedHours` is sent
+       * and Robinhood derives the session (short sales always name it).
+       */
+      marketHours?: OrderMarketHours;
       accountNumber?: string;
     },
   ): Promise<StockOrder> {
@@ -876,9 +902,29 @@ export class RobinhoodClient {
       throw new Error("Cannot combine trailAmount with limitPrice or stopPrice");
     }
 
+    // Session resolution. On the wire `extended_hours` is simply
+    // `market_hours !== "regular_hours"`, so an explicit marketHours derives the
+    // boolean, and a contradictory pair is a caller error rather than a silent pick.
+    const marketHours = opts?.marketHours;
+    if (marketHours != null && opts?.extendedHours != null) {
+      const implied = marketHours !== "regular_hours";
+      if (implied !== opts.extendedHours) {
+        throw new Error(
+          `extendedHours (${opts.extendedHours}) contradicts marketHours ("${marketHours}") — pass marketHours alone`,
+        );
+      }
+    }
+    const extendedHours =
+      marketHours != null ? marketHours !== "regular_hours" : (opts?.extendedHours ?? false);
+
     // Fractional orders must be market orders with gfd
     const isFractional = !Number.isInteger(quantity);
     if (isFractional) {
+      if (side === "sell_short") {
+        throw new Error(
+          "Short sales must be whole shares — fractional short selling is not supported",
+        );
+      }
       if (opts?.limitPrice != null || opts?.stopPrice != null || opts?.trailAmount != null) {
         throw new Error(
           "Fractional orders must be market orders (no limit, stop, or trailing stop)",
@@ -929,9 +975,10 @@ export class RobinhoodClient {
               throw new Error("timeInForce is required for non-fractional stock orders");
             return opts.timeInForce;
           })(),
-      extended_hours: opts?.extendedHours ?? false,
+      extended_hours: extendedHours,
       ref_id: crypto.randomUUID(),
     };
+    if (marketHours != null) payload.market_hours = marketHours;
 
     if (opts?.limitPrice != null) payload.price = String(opts.limitPrice);
     if (opts?.stopPrice != null) payload.stop_price = String(opts.stopPrice);
@@ -947,6 +994,18 @@ export class RobinhoodClient {
     }
 
     payload.order_form_version = 7;
+
+    // A short sale is `sell_short` + `position_effect: "open"`; sending only one
+    // of the two is rejected as an invalid trade type. `order_form_type` is
+    // derived server-side ("short_selling") and is deliberately not sent.
+    if (side === "sell_short") {
+      payload.position_effect = "open";
+      // Short sales are session-scoped: outside regular hours the API rejects
+      // them ("change your trading session to extended hours") unless the
+      // session is named explicitly. When the caller did not name one, derive it
+      // from the boolean — ordinary buys/sells keep letting the server decide.
+      payload.market_hours ??= extendedHours ? "extended_hours" : "regular_hours";
+    }
 
     return (await requestPost(this.session, urls.stockOrders(), {
       payload,
@@ -1702,7 +1761,7 @@ export class RobinhoodClient {
    */
   async reviewEquityOrder(opts: {
     symbol: string;
-    side: "buy" | "sell";
+    side: "buy" | "sell" | "sell_short";
     quantity: number;
     limitPrice?: number;
     stopPrice?: number;
@@ -1732,7 +1791,9 @@ export class RobinhoodClient {
 
     const orderType: ReviewOrderType = deriveOrderType(opts.limitPrice, opts.stopPrice);
     const collar = evaluateEquityCollar({
-      side: opts.side,
+      // A short sale prices like any other sell (marketable at the bid), so the
+      // collar treats `sell_short` as `sell`. The echoed DTO keeps the real side.
+      side: opts.side === "sell_short" ? "sell" : opts.side,
       orderType,
       limitPrice: opts.limitPrice ?? null,
       stopPrice: opts.stopPrice ?? null,

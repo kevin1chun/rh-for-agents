@@ -1269,7 +1269,7 @@ describe("Tool error handling", () => {
       side: "buy",
       quantity: 100,
       time_in_force: "gtc",
-      extended_hours: false,
+      market_hours: "regular_hours",
       trail_type: "percentage",
     })) as {
       content: Array<{ text: string }>;

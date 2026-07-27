@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **24 Hour Market / explicit trading session** — `orderStock()` gained `marketHours` (`"regular_hours" | "extended_hours" | "all_day_hours"`, exported as the `OrderMarketHours` type). `all_day_hours` is Robinhood's overnight 24 Hour Market, previously unreachable. It supersedes the legacy `extendedHours` boolean — on the wire `extended_hours` is simply `market_hours !== "regular_hours"`, so the boolean is derived from it and a contradictory pair throws instead of silently picking one.
+
+- **`examples/short-selling.ts`** — a runnable, commented walkthrough of the full flow (margin check → shortability check → review → short → cover). Dry-run by default; `--place` is required to submit anything.
+
+### Changed
+
+- **BREAKING (MCP tool):** `robinhood_place_stock_order` replaces the optional `extended_hours` boolean (default `false`) with a **required** `market_hours` enum. There is deliberately no default: an order tagged to the wrong session silently queues for the next open instead of executing, and a caller that passes only the old `extended_hours` now fails loudly on the missing parameter rather than quietly placing a regular-hours order. The client library keeps `extendedHours` working, so programmatic callers are unaffected.
+
+### Fixed
+
+- **Short selling** ([#26](https://github.com/kevin1chun/robinhood-for-agents/issues/26)) — `side` now accepts `"sell_short"` in `orderStock()`, `reviewEquityOrder()`, `robinhood_place_stock_order`, and `robinhood_review_equity_order`. Robinhood models a short as its own side value paired with `position_effect: "open"`, not as a plain `sell`: a `sell` with no shares to deliver was rejected with `Not enough shares to sell.`, and either field without the other returns `This type of trade is invalid.` Both are now sent together, along with an explicit `market_hours` (short sales are session-scoped — outside regular hours the API demands the session be named, so pass `extendedHours: true` / `extended_hours: true`). `order_form_type` is derived server-side and deliberately not sent, and ordinary `buy`/`sell` payloads are unchanged. Shorting requires a margin-enabled account — a cash account is rejected upstream with `You need to have margin investing enabled to short.` Fractional short sales are rejected client-side. There is no separate cover side (`buy_to_cover` is not a valid choice); close a short with an ordinary `buy`, which Robinhood stamps `position_effect: "close"` itself. Verified end to end with a live open-and-cover round trip.
+
+### Documentation
+
+- Short selling and trading sessions documented across the README (new **Placing Orders** section with side and session tables), `docs/ARCHITECTURE.md` (side resolution and session wire format, plus the rationale for the required `market_hours`), `docs/ACCESS_CONTROLS.md` (short sales in the high-risk tier), `docs/USE_CASES.md`, `docs/CONTRIBUTING.md` (examples conventions and an unbounded-risk item on the safety checklist), and all three skill layers (`SKILL.md` safety rules, `trade.md` flow, `reference.md` tool parameters, `client-api.md` method reference).
+- `examples/` is now covered by `bun run check`; the pre-existing `gateway-auth` example was brought up to the same lint standard (its tests still pass, 30/30).
+
 ## [1.1.0] - 2026-07-24
 
 ### Added

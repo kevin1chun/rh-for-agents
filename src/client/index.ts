@@ -72,6 +72,7 @@ export type {
   OptionOrderReviewLeg,
   OptionPosition,
   OptionWatchlistContract,
+  OrderMarketHours,
   Portfolio,
   PortfolioLive,
   Position,

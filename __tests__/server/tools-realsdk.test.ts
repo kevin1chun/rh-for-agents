@@ -337,9 +337,25 @@ describe("real SDK smoke — registerTool + outputSchema end-to-end", () => {
       side: "buy",
       quantity: 1,
       time_in_force: "gfd",
+      market_hours: "regular_hours",
       account_number: "ACCT",
     });
     expect(r.structuredContent?.status).toBe("submitted");
+  });
+
+  // market_hours has no default on purpose: an order tagged to the wrong
+  // session silently queues instead of executing, so omitting it must fail
+  // loudly rather than pick a session for the caller.
+  it("robinhood_place_stock_order requires market_hours", async () => {
+    await expect(
+      call("robinhood_place_stock_order", {
+        symbol: "AAPL",
+        side: "buy",
+        quantity: 1,
+        time_in_force: "gfd",
+        account_number: "ACCT",
+      }),
+    ).rejects.toThrow(/market_hours|invalid_type|Required/i);
   });
 
   it("robinhood_cancel_order validates", async () => {

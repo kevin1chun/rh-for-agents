@@ -299,11 +299,13 @@ Historical OHLC price series for a specific option contract.
 Pre-trade simulation — places **nothing**. The **required review step** before `robinhood_place_stock_order`: call it, then **show the result to the user** before placing.
 
 **Parameters:**
-- `symbol` (string, required), `side` ("buy"/"sell"), `quantity` (number, supports fractional)
+- `symbol` (string, required), `side` ("buy"/"sell"/"sell_short"), `quantity` (number, fractional except `sell_short`)
 - `limit_price` (number, optional), `stop_price` (number, optional)
 - `account_number` (string, required)
 
 **Returns:** the order echoed back, live `quote_data` (so the user sees the cost), and `order_checks` — a reproduction of Robinhood's price collar. `order_checks` is `{}` **only** when the collar ran and found no problem; read `evaluated_checks` / `not_evaluated_checks` to know what was and wasn't checked (an empty `order_checks` is **not** a blanket "all clear"). If `order_checks` has an `alert_type` (e.g. `EQUITY_EXTREMELY_MARKETABLE_LIMIT_PRICE`), surface it prominently and re-confirm the price. `market_data_disclosure` is null (not reproducible). TOCTOU: if `quote_timestamp` is stale by the time you place, re-review first.
+
+A clean review does **not** mean the order will be accepted: short eligibility, margin, borrow availability, day-trade suitability, and the server-side priceband are all checked by Robinhood at placement and are not reproduced here. Reviewing a `sell_short` prices it like any other sell.
 
 ### robinhood_review_option_order (read-only simulation)
 Pre-trade simulation for single/multi-leg option orders — places **nothing**. The **required review step** before `robinhood_place_option_order`.
@@ -319,10 +321,13 @@ Pre-trade simulation for single/multi-leg option orders — places **nothing**. 
 **Always** run `robinhood_review_equity_order` first and **show its result to the user** — this is the review→place gate, not an internal step.
 
 **Parameters:**
-- `symbol` (string, required), `side` ("buy"/"sell"), `quantity` (number, supports fractional)
+- `symbol` (string, required), `side` ("buy"/"sell"/"sell_short"), `quantity` (number, fractional except `sell_short`)
 - `limit_price` (number, optional), `stop_price` (number, optional)
 - `trail_amount` (number, optional), `trail_type` ("percentage"/"amount", default: "percentage")
-- `account_number` (string, required), `time_in_force` ("gtc"/"gfd", **required**), `extended_hours` (boolean)
+- `account_number` (string, required), `time_in_force` ("gtc"/"gfd", **required**)
+- `market_hours` ("regular_hours"/"extended_hours"/"all_day_hours", **required** — no default; an order tagged to the wrong session silently queues instead of executing). `all_day_hours` is the 24 Hour Market. Only limit orders execute outside regular hours. (Replaces the former `extended_hours` boolean.)
+
+**Short selling:** `sell` only closes an existing long — selling stock you do not own is rejected with `Not enough shares to sell.` Open a short with `side: "sell_short"` (margin-enabled account, whole shares only; a cash account is rejected with `You need to have margin investing enabled to short.`). Outside regular hours set `market_hours` to `extended_hours` (or `all_day_hours`), or the order is rejected with `It's after market close. To place this short sell order, change your trading session to extended hours.` There is no separate cover side — close a short with an ordinary `buy`.
 
 ### robinhood_place_option_order
 **Always** run `robinhood_review_option_order` first and **show its result to the user**.

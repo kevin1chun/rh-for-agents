@@ -5,26 +5,35 @@
  * agent identity and tool permissions via X-Agent-Credential header.
  */
 
-import { configFromEnv } from "./config";
-import { AuthGateway, UnsafeStructuralVerifier, createVerifier } from "./gateway";
+import { configFromEnv, type GatewayConfig } from "./config";
+import {
+  type AgentVerifier,
+  AuthGateway,
+  createVerifier,
+  UnsafeStructuralVerifier,
+} from "./gateway";
 
-let config;
-try {
-  config = configFromEnv();
-} catch (err) {
-  console.error("[gateway] Configuration error:", (err as Error).message);
-  process.exit(1);
+/** Load config, or exit with a readable message rather than a stack trace. */
+function loadConfig(): GatewayConfig {
+  try {
+    return configFromEnv();
+  } catch (err) {
+    console.error("[gateway] Configuration error:", (err as Error).message);
+    process.exit(1);
+  }
 }
 
-const verifierType = process.env.AGENT_VERIFIER || "structural";
-
-let verifier;
-try {
-  verifier = createVerifier(verifierType);
-} catch (err) {
-  console.error("[gateway] Verifier setup error:", (err as Error).message);
-  process.exit(1);
+function loadVerifier(type: string): AgentVerifier {
+  try {
+    return createVerifier(type);
+  } catch (err) {
+    console.error("[gateway] Verifier setup error:", (err as Error).message);
+    process.exit(1);
+  }
 }
+
+const config = loadConfig();
+const verifier = loadVerifier(process.env.AGENT_VERIFIER || "structural");
 
 // Hard block: refuse to start with auth enabled + structural verifier
 if (config.authEnabled && verifier instanceof UnsafeStructuralVerifier) {

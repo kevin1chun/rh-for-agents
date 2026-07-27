@@ -392,6 +392,160 @@ describe("RobinhoodClient", () => {
         }),
       );
     });
+
+    // Robinhood models a short as its own side value paired with
+    // position_effect: "open" — sending either alone is rejected by the API
+    // ("Not enough shares to sell." / "This type of trade is invalid.").
+    it("sends sell_short with position_effect open and an explicit session", async () => {
+      // findInstruments
+      mockRequestGet.mockResolvedValueOnce([
+        {
+          url: "https://api.robinhood.com/instruments/abc/",
+          id: "abc",
+          symbol: "AAPL",
+          name: "Apple Inc",
+          type: "stock",
+        },
+      ]);
+      // POST order
+      mockRequestPost.mockResolvedValueOnce({ id: "order1", state: "locate_completed" });
+
+      await client.orderStock("AAPL", "sell_short", 10, {
+        limitPrice: 150,
+        timeInForce: "gfd",
+        accountNumber: "456",
+      });
+
+      expect(mockRequestPost).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            side: "sell_short",
+            position_effect: "open",
+            market_hours: "regular_hours",
+            order_form_version: 7,
+          }),
+        }),
+      );
+    });
+
+    // Outside regular hours the API rejects a short unless the session is named
+    // ("change your trading session to extended hours").
+    it("names the extended-hours session for an extended-hours short", async () => {
+      // findInstruments
+      mockRequestGet.mockResolvedValueOnce([
+        {
+          url: "https://api.robinhood.com/instruments/abc/",
+          id: "abc",
+          symbol: "AAPL",
+          name: "Apple Inc",
+          type: "stock",
+        },
+      ]);
+      // POST order
+      mockRequestPost.mockResolvedValueOnce({ id: "order1", state: "locate_completed" });
+
+      await client.orderStock("AAPL", "sell_short", 10, {
+        limitPrice: 150,
+        timeInForce: "gfd",
+        extendedHours: true,
+        accountNumber: "456",
+      });
+
+      expect(mockRequestPost).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            side: "sell_short",
+            extended_hours: true,
+            market_hours: "extended_hours",
+          }),
+        }),
+      );
+    });
+
+    it("leaves ordinary buy/sell payloads untouched", async () => {
+      for (const side of ["buy", "sell"] as const) {
+        mockRequestPost.mockClear();
+        // findInstruments
+        mockRequestGet.mockResolvedValueOnce([
+          {
+            url: "https://api.robinhood.com/instruments/abc/",
+            id: "abc",
+            symbol: "AAPL",
+            name: "Apple Inc",
+            type: "stock",
+          },
+        ]);
+        // POST order
+        mockRequestPost.mockResolvedValueOnce({ id: "order1", state: "queued" });
+
+        await client.orderStock("AAPL", side, 1, { timeInForce: "gfd", accountNumber: "456" });
+
+        const payload = mockRequestPost.mock.calls[0]?.[2]?.payload as Record<string, unknown>;
+        expect(payload.side).toBe(side);
+        // Both fields are short-sale-only: the server derives them for ordinary
+        // orders and this path is deliberately unchanged.
+        expect(payload).not.toHaveProperty("position_effect");
+        expect(payload).not.toHaveProperty("market_hours");
+      }
+    });
+
+    // `all_day_hours` is Robinhood's 24 Hour Market; on the wire the
+    // extended_hours boolean is just `market_hours !== "regular_hours"`.
+    it("sends marketHours verbatim and derives extended_hours from it", async () => {
+      const cases = [
+        { marketHours: "regular_hours", extended: false },
+        { marketHours: "extended_hours", extended: true },
+        { marketHours: "all_day_hours", extended: true },
+      ] as const;
+
+      for (const c of cases) {
+        mockRequestPost.mockClear();
+        // findInstruments
+        mockRequestGet.mockResolvedValueOnce([
+          {
+            url: "https://api.robinhood.com/instruments/abc/",
+            id: "abc",
+            symbol: "AAPL",
+            name: "Apple Inc",
+            type: "stock",
+          },
+        ]);
+        // POST order
+        mockRequestPost.mockResolvedValueOnce({ id: "order1", state: "queued" });
+
+        await client.orderStock("AAPL", "buy", 1, {
+          limitPrice: 150,
+          timeInForce: "gfd",
+          marketHours: c.marketHours,
+          accountNumber: "456",
+        });
+
+        const payload = mockRequestPost.mock.calls[0]?.[2]?.payload as Record<string, unknown>;
+        expect(payload.market_hours).toBe(c.marketHours);
+        expect(payload.extended_hours).toBe(c.extended);
+      }
+    });
+
+    it("throws when extendedHours contradicts marketHours", async () => {
+      await expect(
+        client.orderStock("AAPL", "buy", 1, {
+          timeInForce: "gfd",
+          marketHours: "regular_hours",
+          extendedHours: true,
+          accountNumber: "456",
+        }),
+      ).rejects.toThrow("contradicts marketHours");
+    });
+
+    it("rejects fractional short sales", async () => {
+      await expect(
+        client.orderStock("AAPL", "sell_short", 1.5, { timeInForce: "gfd", accountNumber: "456" }),
+      ).rejects.toThrow("Short sales must be whole shares");
+    });
   });
 
   describe("orderOption validation", () => {

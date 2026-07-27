@@ -7,7 +7,7 @@
  * Implements the authorization proxy pattern from docs/AGENT-IDENTITY.md.
  */
 
-import { TOOL_PERMISSIONS, type GatewayConfig, type Permission } from "./config";
+import { type GatewayConfig, TOOL_PERMISSIONS } from "./config";
 
 // ---------------------------------------------------------------------------
 // Pluggable verifier interface
@@ -42,11 +42,7 @@ export class UnsafeStructuralVerifier implements AgentVerifier {
   async verify(credential: string): Promise<VerificationResult> {
     try {
       const data = JSON.parse(credential);
-      if (
-        typeof data.agentId !== "string" ||
-        !data.agentId ||
-        !Array.isArray(data.permissions)
-      ) {
+      if (typeof data.agentId !== "string" || !data.agentId || !Array.isArray(data.permissions)) {
         return {
           verified: false,
           agentId: "",
@@ -116,11 +112,7 @@ export class SharedSecretVerifier implements AgentVerifier {
   async verify(credential: string): Promise<VerificationResult> {
     try {
       const data = JSON.parse(credential);
-      if (
-        typeof data.agentId !== "string" ||
-        !data.agentId ||
-        !Array.isArray(data.permissions)
-      ) {
+      if (typeof data.agentId !== "string" || !data.agentId || !Array.isArray(data.permissions)) {
         return {
           verified: false,
           agentId: "",
@@ -180,10 +172,7 @@ export class SharedSecretVerifier implements AgentVerifier {
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
       // Constant-time comparison (length-safe)
-      if (
-        expected.length !== data.hmac.length ||
-        !timingSafeEqual(expected, data.hmac)
-      ) {
+      if (expected.length !== data.hmac.length || !timingSafeEqual(expected, data.hmac)) {
         return {
           verified: false,
           agentId: data.agentId,
@@ -300,10 +289,7 @@ export class AuthGateway {
    * @param toolName - The MCP tool being called
    * @returns null if authorized, error message if denied
    */
-  async authorize(
-    credential: string | undefined,
-    toolName: string,
-  ): Promise<string | null> {
+  async authorize(credential: string | undefined, toolName: string): Promise<string | null> {
     if (!this.config.authEnabled) return null;
 
     if (!credential) {
@@ -313,12 +299,7 @@ export class AuthGateway {
 
     const result = await this.verifier.verify(credential);
     if (!result.verified) {
-      this.record(
-        "deny",
-        result.agentId,
-        toolName,
-        result.reason || "verification failed",
-      );
+      this.record("deny", result.agentId, toolName, result.reason || "verification failed");
       return "Access denied";
     }
 
@@ -335,25 +316,13 @@ export class AuthGateway {
         this.record("deny", result.agentId, toolName, "unmapped tool");
         return "Access denied";
       }
-      this.record(
-        "allow",
-        result.agentId,
-        toolName,
-        "unmapped (policy: allow)",
-      );
+      this.record("allow", result.agentId, toolName, "unmapped (policy: allow)");
       return null;
     }
 
-    const missing = required.filter(
-      (p) => !result.permissions.includes(p),
-    );
+    const missing = required.filter((p) => !result.permissions.includes(p));
     if (missing.length > 0) {
-      this.record(
-        "deny",
-        result.agentId,
-        toolName,
-        `missing: ${missing.join(", ")}`,
-      );
+      this.record("deny", result.agentId, toolName, `missing: ${missing.join(", ")}`);
       return "Access denied";
     }
 
@@ -361,12 +330,7 @@ export class AuthGateway {
     return null;
   }
 
-  private record(
-    action: "allow" | "deny",
-    agentId: string,
-    tool: string,
-    reason: string,
-  ) {
+  private record(action: "allow" | "deny", agentId: string, tool: string, reason: string) {
     const decision: AuthDecision = {
       action,
       agentId,

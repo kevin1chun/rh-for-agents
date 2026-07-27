@@ -45,8 +45,8 @@ export interface GatewayConfig {
 }
 
 export function configFromEnv(): GatewayConfig {
-  const port = parseInt(process.env.GATEWAY_PORT || "3001", 10);
-  if (isNaN(port) || port < 1 || port > 65535) {
+  const port = Number.parseInt(process.env.GATEWAY_PORT || "3001", 10);
+  if (Number.isNaN(port) || port < 1 || port > 65535) {
     throw new Error(`Invalid GATEWAY_PORT: ${process.env.GATEWAY_PORT}`);
   }
 

@@ -284,8 +284,24 @@ await rh.orderStock("AAPL", "buy", 10, { timeInForce: "gfd" });                 
 await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd" });       // limit
 await rh.orderStock("AAPL", "sell", 10, { stopPrice: 145.0, limitPrice: 144.0, timeInForce: "gfd" }); // stop-limit
 await rh.orderStock("AAPL", "sell", 10, { trailAmount: 5, trailType: "percentage", timeInForce: "gfd" }); // trailing stop
+await rh.orderStock("AAPL", "sell_short", 10, { limitPrice: 150.0, timeInForce: "gfd" });  // open a short
+await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd" });         // cover a short
+await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd", marketHours: "all_day_hours" }); // 24 Hour Market
 ```
-Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeInForce (required), extendedHours }`
+Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeInForce (required), marketHours, extendedHours }`
+
+**Side** — `"buy" | "sell" | "sell_short"`:
+
+| Intent | Side |
+|---|---|
+| Open / add to a long | `buy` |
+| Close a long | `sell` |
+| Open a short | `sell_short` |
+| Cover a short | `buy` |
+
+`sell` only closes a long — selling stock the account does not hold fails with `Not enough shares to sell.` `sell_short` requires a margin-enabled account (a cash account is rejected with `You need to have margin investing enabled to short.`) and whole shares. There is no separate cover side; a plain `buy` against an open short is recognised as closing it.
+
+**Session** — `marketHours` is `"regular_hours" | "extended_hours" | "all_day_hours"` (the last is Robinhood's 24 Hour Market). It supersedes the legacy `extendedHours` boolean (`extended_hours` on the wire is just `market_hours !== "regular_hours"`); passing both with contradictory values throws. Only limit orders execute outside regular hours, and a short sell placed outside regular hours is rejected unless the session is named. The MCP tool exposes this as a **required** `market_hours` parameter.
 
 ### `orderOption(symbol, legs, price, quantity, direction, opts?)`
 ```typescript

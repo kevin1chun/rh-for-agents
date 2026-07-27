@@ -100,10 +100,17 @@ vi.mock("../../src/client/http.js", async (importOriginal) => {
 5. Open a pull request against `main`
 6. Fill out the PR template (safety checklist + testing)
 
+## Examples
+
+Runnable examples live in `examples/` and are linted and formatted with the rest of the codebase (`bun run check`). They are not type-checked by `bun run typecheck`, because they import the package by name (`robinhood-for-agents`), which resolves through `dist/` — run `bun run build` first if you want your editor to resolve them.
+
+An example that can place an order must be **dry-run by default** and require an explicit flag (e.g. `--place`) to submit anything real. Say so in the file header.
+
 ## Safety Checklist
 
 Before adding any new tool or skill:
 - [ ] Does it expose fund transfer or bank operations? (If yes, BLOCK it)
 - [ ] Does it place orders? (If yes, require explicit parameters, add to high-risk tier)
 - [ ] Could it cause bulk operations? (If yes, consider blocking or adding safeguards)
+- [ ] Could a mis-parsed request create *unbounded* risk (a short, a naked option)? (If yes, make the risky path its own explicit parameter value — never a default or a near-synonym of a safe one)
 - [ ] Update ACCESS_CONTROLS.md with the new operation

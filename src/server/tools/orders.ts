@@ -25,11 +25,18 @@ export function registerOrderTools(server: McpServer): void {
     {
       title: "Place Stock Order",
       description:
-        "Place a stock order. Requires explicit parameters — no dangerous defaults. Always confirm with the user before calling.",
+        "Place a stock order. Requires explicit parameters — no dangerous defaults. Always confirm with the user before calling. Short selling: use side 'sell_short' to open a short (NOT 'sell', which only closes an existing long and is rejected with 'Not enough shares to sell.'). Close a short with an ordinary 'buy'.",
       inputSchema: {
         symbol: z.string().describe("Stock ticker symbol (e.g. AAPL)."),
-        side: z.enum(["buy", "sell"]).describe("Order side."),
-        quantity: z.number().positive().describe("Number of shares (supports fractional)."),
+        side: z
+          .enum(["buy", "sell", "sell_short"])
+          .describe(
+            "Order side. 'sell' closes a long position; 'sell_short' opens a short position (requires a margin-enabled account and whole shares). To cover a short, use 'buy'.",
+          ),
+        quantity: z
+          .number()
+          .positive()
+          .describe("Number of shares. Fractional allowed except for 'sell_short'."),
         limit_price: z
           .number()
           .positive()
@@ -54,7 +61,11 @@ export function registerOrderTools(server: McpServer): void {
           .describe(
             "Time in force: 'gfd' (good for day, safer) or 'gtc' (good till cancelled). Required.",
           ),
-        extended_hours: z.boolean().default(false).describe("Allow extended hours execution."),
+        market_hours: z
+          .enum(["regular_hours", "extended_hours", "all_day_hours"])
+          .describe(
+            "Trading session, REQUIRED — no default, because an order tagged to the wrong session silently queues instead of executing. 'regular_hours' (9:30-16:00 ET), 'extended_hours' (pre/post-market), or 'all_day_hours' (24 Hour Market, overnight). Only limit orders execute outside regular hours, and a short sell placed outside regular hours is rejected unless the session is named.",
+          ),
         account_number: z
           .string()
           .describe("Robinhood account number. Get from robinhood_get_accounts."),
@@ -74,7 +85,7 @@ export function registerOrderTools(server: McpServer): void {
       trail_amount,
       trail_type,
       time_in_force,
-      extended_hours,
+      market_hours,
       account_number,
     }) => {
       try {
@@ -85,7 +96,7 @@ export function registerOrderTools(server: McpServer): void {
           trailAmount: trail_amount,
           trailType: trail_type,
           timeInForce: time_in_force,
-          extendedHours: extended_hours,
+          marketHours: market_hours,
           accountNumber: account_number,
         });
         return structured({ status: "submitted", order });
