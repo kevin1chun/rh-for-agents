@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] — targeting 2.0.0
+
+`robinhood_place_stock_order` gains a required parameter and drops `extended_hours`, which breaks existing callers of that tool, so the next release is a major bump. The **client library** API remains backwards-compatible: `extendedHours` still works and `marketHours` is optional there.
 
 ### Added
 
