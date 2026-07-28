@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **Skill-doc audit for agent readability.** Everything learned from live testing is now stated where an agent will actually read it, in all three progressive-disclosure layers. Newly documented: the order-`state` vocabulary — including `locate_completed`, the state an accepted short returns, which was previously undocumented and reads like a failure; that a filled short appears as a **negative** position quantity and is closed by buying, not selling (`portfolio.md` had no mention of shorts at all); and that Robinhood returns one rejection at a time, checking the session before the account type, so a rejection can hide another behind it. Constraint tables now say whether each rejection comes from this library or from Robinhood, and quote the message the caller will actually see.
+- **`__tests__/client/doc-accuracy.test.ts`** pins the guard messages to the docs that quote them, so a reworded guard fails CI instead of silently invalidating the skill an agent is following.
+
 - Short selling and trading sessions documented across the README (new **Placing Orders** section with side and session tables), `docs/ARCHITECTURE.md` (side resolution and session wire format, plus the rationale for the required `market_hours`), `docs/ACCESS_CONTROLS.md` (short sales in the high-risk tier), `docs/USE_CASES.md`, `docs/CONTRIBUTING.md` (examples conventions and an unbounded-risk item on the safety checklist), and all three skill layers (`SKILL.md` safety rules, `trade.md` flow, `reference.md` tool parameters, `client-api.md` method reference).
 - `examples/` is now covered by `bun run check`; the pre-existing `gateway-auth` example was brought up to the same lint standard (its tests still pass, 30/30).
 

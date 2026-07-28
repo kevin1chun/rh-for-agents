@@ -41,7 +41,7 @@ See [client-api.md](client-api.md) for all available methods and signatures.
 3. **Never place orders without user confirmation**
 4. **Fund transfers and bank operations are BLOCKED** — refuse these requests
 5. **Never place bulk cancel operations** — cancel orders one at a time
-6. **Never turn a "sell" into a short.** `sell` closes a long; `sell_short` opens a short with unlimited loss potential. Only short when the user asked to short, and label it **SHORT SELL** when confirming — see [trade.md](trade.md#short-selling)
+6. **Never turn a "sell" into a short.** `sell` closes a long; `sell_short` opens a short with unlimited loss potential. Only short when the user asked to short, and label it **SHORT SELL** when confirming. A **negative** position quantity *is* a short — close it by **buying**, never by selling more. See [trade.md](trade.md#short-selling)
 7. **Name the trading session.** Outside regular hours, only limit orders execute; an order tagged to the wrong session silently queues for the next open instead of filling. Check with `robinhood_get_market_hours` / `getMarketHours()` — never infer the session from the local clock
 
 ### BLOCKED Operations (never use)

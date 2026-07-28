@@ -101,14 +101,22 @@ await rh.orderStock("AAPL", "buy", 10, { limitPrice: 145.0, timeInForce: "gfd", 
 
 Requirements and failure modes:
 
-| Condition | Result |
-|---|---|
-| Margin-enabled account | Required — a cash account is rejected with `You need to have margin investing enabled to short.` |
-| Whole shares | Required — no fractional shorts |
-| Good-for-day only | `gtc` is rejected: `Short sell orders must be good for day only.` |
-| Regular or extended hours only | **Not available in the 24 Hour Market** — `all_day_hours` is rejected with `Short selling isn't available during the 24 Hour Market.` |
-| Outside regular hours | Pass `marketHours: "extended_hours"`, else `It's after market close. To place this short sell order, change your trading session to extended hours.` |
-| Symbol not shortable | Check `short_selling_tradability` via `robinhood_get_equity_tradability` first |
+| Condition | Rejected by | What you will see |
+|---|---|---|
+| Whole shares — no fractional shorts | client, before sending | `Short sales must be whole shares — fractional short selling is not supported` |
+| Good-for-day only (`gtc` not allowed) | client, before sending | `Short sales must be good-for-day — timeInForce "gtc" is not accepted` |
+| **Not available in the 24 Hour Market** | client, before sending | `Short selling is not available during the 24 Hour Market (all_day_hours)` |
+| Margin-enabled account required | Robinhood | `You need to have margin investing enabled to short.` |
+| Outside regular hours, pass `marketHours: "extended_hours"` | Robinhood | `It's after market close. To place this short sell order, change your trading session to extended hours.` |
+| Symbol must be shortable | Robinhood | varies — check `short_selling_tradability` via `robinhood_get_equity_tradability` first |
+
+The client-side rejections throw before any order is attempted, so nothing was placed. The Robinhood ones come back as an `APIError`.
+
+**After placing.** An accepted short first shows `state: "locate_completed"` — Robinhood found shares to borrow. That is success, not an error; it proceeds to `filled` like any other order.
+
+**A short position shows as a NEGATIVE quantity.** After a short fills, `robinhood_get_equity_positions` reports e.g. `quantity: "-10"`. Never read that as a data error or as something to "fix" by selling more — selling more *increases* the short. Cover with a `buy` of the absolute value.
+
+**Diagnosing a rejection.** Robinhood validates in order and returns only the first failure, so a rejection can hide another one behind it. Most notably, the **session is checked before the account type**: a short attempted after hours on a cash account reports `It's after market close…`, *not* the margin error — the account may be ineligible too. Fix the reported problem, then re-try to see whether another is behind it.
 
 **Confirm shorts explicitly.** A short has unlimited loss potential and is easy to conflate with selling a holding. Before placing, verify the user asked to *open a short* — if they said "sell my AAPL" and the account holds AAPL, that is a `sell`, not a `sell_short`. Label it **SHORT SELL** in the confirmation, and state that closing it requires buying the shares back.
 
@@ -165,5 +173,19 @@ await rh.cancelStockOrder("order-uuid");
 const order = await rh.getStockOrder("order-uuid");
 // Also: getOptionOrder(), getCryptoOrder()
 ```
+
+**Reading `state`.** Do not report an order as failed just because it is not `filled` — most states mean "working":
+
+| `state` | Meaning |
+|---|---|
+| `unconfirmed` / `queued` / `confirmed` | Accepted and working. Not yet executed |
+| `locate_completed` | **Short sale accepted** — Robinhood located shares to borrow. This is a normal, successful state on the way to a fill; it is not an error |
+| `partially_filled` | Some shares executed; the rest is still working |
+| `filled` | Fully executed — terminal |
+| `cancelled` / `rejected` / `failed` | Terminal, nothing more will execute. Check `reject_reason` |
+
+Only `filled`, `cancelled`, `rejected`, and `failed` are terminal. When polling, keep going until one of those; report the others as still working, and always quote `cumulative_quantity` — a cancelled order may still have partially filled before it was cancelled.
+
+Also useful on the order object: `cumulative_quantity` (shares actually executed), `average_price` (fill price), `cancel` (non-null means it can still be cancelled), and `position_effect` (`open` / `close` — Robinhood's own view of whether the order opened or closed a position).
 
 For all client methods, see [client-api.md](client-api.md).

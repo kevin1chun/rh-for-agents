@@ -329,6 +329,8 @@ Pre-trade simulation for single/multi-leg option orders — places **nothing**. 
 
 **Short selling:** `sell` only closes an existing long — selling stock you do not own is rejected with `Not enough shares to sell.` Open a short with `side: "sell_short"` (margin-enabled account, whole shares only; a cash account is rejected with `You need to have margin investing enabled to short.`). Outside regular hours set `market_hours` to `extended_hours`, or the order is rejected with `It's after market close. To place this short sell order, change your trading session to extended hours.` Shorts are **not** available in the 24 Hour Market (`all_day_hours` → `Short selling isn't available during the 24 Hour Market.`) and must be `gfd` (`gtc` → `Short sell orders must be good for day only.`). There is no separate cover side — close a short with an ordinary `buy`.
 
+An accepted short returns `state: "locate_completed"` (Robinhood located shares to borrow) — that is success, not an error. Once filled, the position appears in `robinhood_get_equity_positions` as a **negative** quantity; cover by buying the absolute value. Rejections are returned one at a time and the session is validated **before** the account type, so an after-hours attempt on a cash account reports the session error rather than the margin error — fix the reported problem and re-try to surface any that remain.
+
 ### robinhood_place_option_order
 **Always** run `robinhood_review_option_order` first and **show its result to the user**.
 
@@ -357,6 +359,18 @@ Pre-trade simulation for single/multi-leg option orders — places **nothing**. 
 ### robinhood_get_order_status
 **Parameters:**
 - `order_id` (string, required), `order_type` ("stock"/"option"/"crypto", default: "stock")
+
+**Reading `state`** — do not report an order as failed just because it is not `filled`:
+
+| `state` | Meaning |
+|---|---|
+| `unconfirmed` / `queued` / `confirmed` | Accepted and working |
+| `locate_completed` | **Short sale accepted** — Robinhood located shares to borrow. Normal and successful, not an error |
+| `partially_filled` | Some shares executed, rest still working |
+| `filled` | Fully executed — terminal |
+| `cancelled` / `rejected` / `failed` | Terminal; check `reject_reason` |
+
+Only `filled`, `cancelled`, `rejected`, `failed` are terminal. Always quote `cumulative_quantity` — a cancelled order may have partially filled first.
 
 ## Markets
 

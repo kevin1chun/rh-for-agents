@@ -46,8 +46,13 @@ Present results as a formatted table:
 - Separate sections for stocks and crypto
 - Summary line: Total holdings value, day change
 
+## Short Positions
+A **negative `quantity`** is a short position, not bad data — the account owes those shares. Report it as "short N shares", never as a holding of N.
+
+Its P&L runs the opposite way: the position gains when the price falls and loses when it rises, with no upper bound on the loss. Closing it means **buying** the absolute value back (`side: "buy"`), not selling — see [trade.md](trade.md#short-selling). If a user asks to "sell" a short position, they almost certainly mean cover it; confirm before acting, because a `sell_short` would double the exposure instead.
+
 ## Key Response Fields
-**`holdings`** — per ticker: `price`, `quantity`, `average_buy_price`, `equity`, `percent_change`, `intraday_percent_change`, `equity_change`, `name`
+**`holdings`** — per ticker: `price`, `quantity` (negative = short), `average_buy_price`, `equity`, `percent_change`, `intraday_percent_change`, `equity_change`, `name`
 
 **`summary`**: `equity`, `market_value`, `cash`, `buying_power`, `crypto_buying_power`, `cash_available_for_withdrawal`
 

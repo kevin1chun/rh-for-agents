@@ -304,12 +304,18 @@ Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeIn
 
 `sell_short` carries extra constraints, all enforced client-side so you get the reason before an order is attempted:
 
-| Constraint | If violated |
-|---|---|
-| Margin-enabled account | `You need to have margin investing enabled to short.` |
-| Whole shares | `Short sales must be whole shares` |
-| `timeInForce: "gfd"` | `Short sell orders must be good for day only.` |
-| `regular_hours` or `extended_hours` only | `Short selling isn't available during the 24 Hour Market.` |
+| Constraint | Rejected by | Message you will see |
+|---|---|---|
+| Whole shares | client, before sending | `Short sales must be whole shares — fractional short selling is not supported` |
+| `timeInForce: "gfd"` | client, before sending | `Short sales must be good-for-day — timeInForce "gtc" is not accepted` |
+| Not in the 24 Hour Market | client, before sending | `Short selling is not available during the 24 Hour Market (all_day_hours)` |
+| Margin-enabled account | Robinhood | `You need to have margin investing enabled to short.` |
+| Session named outside regular hours | Robinhood | `It's after market close. To place this short sell order, change your trading session to extended hours.` |
+| Symbol shortable / borrow available | Robinhood | varies — check `short_selling_tradability` first |
+
+The first three throw locally, so no order is ever attempted; the rest come back as an `APIError` from Robinhood. Match on the message in this table, not on Robinhood's wording, for the client-side ones.
+
+An accepted short returns `state: "locate_completed"` (Robinhood located shares to borrow) — success, not an error. A filled short shows in `getPositions()` as a **negative** quantity; cover by buying the absolute value. Robinhood returns one rejection at a time and checks the session **before** the account type, so an after-hours attempt on a cash account reports the session error rather than the margin error.
 
 **Session** — `marketHours` is `"regular_hours" | "extended_hours" | "all_day_hours"` (the last is Robinhood's 24 Hour Market). It supersedes the legacy `extendedHours` boolean (`extended_hours` on the wire is just `market_hours !== "regular_hours"`); passing both with contradictory values throws. Only limit orders execute outside regular hours — a market, stop, or trailing order tagged to another session is rejected client-side. A short sell placed outside regular hours is rejected unless the session is named.
 
