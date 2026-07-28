@@ -299,11 +299,13 @@ Historical OHLC price series for a specific option contract.
 Pre-trade simulation — places **nothing**. The **required review step** before `robinhood_place_stock_order`: call it, then **show the result to the user** before placing.
 
 **Parameters:**
-- `symbol` (string, required), `side` ("buy"/"sell"), `quantity` (number, supports fractional)
+- `symbol` (string, required), `side` ("buy"/"sell"/"sell_short"), `quantity` (number, fractional except `sell_short`)
 - `limit_price` (number, optional), `stop_price` (number, optional)
 - `account_number` (string, required)
 
 **Returns:** the order echoed back, live `quote_data` (so the user sees the cost), and `order_checks` — a reproduction of Robinhood's price collar. `order_checks` is `{}` **only** when the collar ran and found no problem; read `evaluated_checks` / `not_evaluated_checks` to know what was and wasn't checked (an empty `order_checks` is **not** a blanket "all clear"). If `order_checks` has an `alert_type` (e.g. `EQUITY_EXTREMELY_MARKETABLE_LIMIT_PRICE`), surface it prominently and re-confirm the price. `market_data_disclosure` is null (not reproducible). TOCTOU: if `quote_timestamp` is stale by the time you place, re-review first.
+
+A clean review does **not** mean the order will be accepted: short eligibility, margin, borrow availability, day-trade suitability, and the server-side priceband are all checked by Robinhood at placement and are not reproduced here. Reviewing a `sell_short` prices it like any other sell.
 
 ### robinhood_review_option_order (read-only simulation)
 Pre-trade simulation for single/multi-leg option orders — places **nothing**. The **required review step** before `robinhood_place_option_order`.
@@ -319,10 +321,15 @@ Pre-trade simulation for single/multi-leg option orders — places **nothing**. 
 **Always** run `robinhood_review_equity_order` first and **show its result to the user** — this is the review→place gate, not an internal step.
 
 **Parameters:**
-- `symbol` (string, required), `side` ("buy"/"sell"), `quantity` (number, supports fractional)
+- `symbol` (string, required), `side` ("buy"/"sell"/"sell_short"), `quantity` (number, fractional except `sell_short`)
 - `limit_price` (number, optional), `stop_price` (number, optional)
 - `trail_amount` (number, optional), `trail_type` ("percentage"/"amount", default: "percentage")
-- `account_number` (string, required), `time_in_force` ("gtc"/"gfd", **required**), `extended_hours` (boolean)
+- `account_number` (string, required), `time_in_force` ("gtc"/"gfd", **required**)
+- `market_hours` ("regular_hours"/"extended_hours"/"all_day_hours", **required** — no default; an order tagged to the wrong session silently queues instead of executing). `all_day_hours` is the 24 Hour Market. Only limit orders execute outside regular hours — a market, stop, or trailing order tagged to another session is rejected. Use `robinhood_get_market_hours` to check which session is live instead of guessing. (Replaces the former `extended_hours` boolean.)
+
+**Short selling:** `sell` only closes an existing long — selling stock you do not own is rejected with `Not enough shares to sell.` Open a short with `side: "sell_short"` (margin-enabled account, whole shares only; a cash account is rejected with `You need to have margin investing enabled to short.`). Outside regular hours set `market_hours` to `extended_hours`, or the order is rejected with `It's after market close. To place this short sell order, change your trading session to extended hours.` Shorts are **not** available in the 24 Hour Market (`all_day_hours` → `Short selling isn't available during the 24 Hour Market.`) and must be `gfd` (`gtc` → `Short sell orders must be good for day only.`). There is no separate cover side — close a short with an ordinary `buy`.
+
+An accepted short returns `state: "locate_completed"` (Robinhood located shares to borrow) — that is success, not an error. Once filled, the position appears in `robinhood_get_equity_positions` as a **negative** quantity; cover by buying the absolute value. Rejections are returned one at a time and the session is validated **before** the account type, so an after-hours attempt on a cash account reports the session error rather than the margin error — fix the reported problem and re-try to surface any that remain.
 
 ### robinhood_place_option_order
 **Always** run `robinhood_review_option_order` first and **show its result to the user**.
@@ -353,6 +360,18 @@ Pre-trade simulation for single/multi-leg option orders — places **nothing**. 
 **Parameters:**
 - `order_id` (string, required), `order_type` ("stock"/"option"/"crypto", default: "stock")
 
+**Reading `state`** — do not report an order as failed just because it is not `filled`:
+
+| `state` | Meaning |
+|---|---|
+| `unconfirmed` / `queued` / `confirmed` | Accepted and working |
+| `locate_completed` | **Short sale accepted** — Robinhood located shares to borrow. Normal and successful, not an error |
+| `partially_filled` | Some shares executed, rest still working |
+| `filled` | Fully executed — terminal |
+| `cancelled` / `rejected` / `failed` | Terminal; check `reject_reason` |
+
+Only `filled`, `cancelled`, `rejected`, `failed` are terminal. Always quote `cumulative_quantity` — a cancelled order may have partially filled first.
+
 ## Markets
 
 ### robinhood_get_movers
@@ -361,6 +380,17 @@ Get top movers by category.
 **Parameters:**
 - `category` (enum: "top_movers", "sp500", "top_100", default: "top_movers")
 - `direction` (enum: "up", "down") — required when `category: "sp500"`, ignored otherwise
+
+### robinhood_get_market_hours
+Market hours for a date: whether it is a trading day, and when the regular and extended sessions open and close.
+
+**Parameters:**
+- `date` (string, optional) — `YYYY-MM-DD`. Defaults to today in US market time (ET), not the caller's local date
+- `market` (string, optional) — MIC code, default `"XNYS"`
+
+**Response:** `{ "is_open": true, "date": "...", "opens_at": "...", "closes_at": "...", "extended_opens_at": "...", "extended_closes_at": "...", "note": "..." }` (ISO-8601 UTC; session times are null when `is_open` is false)
+
+Call this before placing an order when you are unsure which session is live — `robinhood_place_stock_order` requires an explicit `market_hours`, and inferring it from the local clock is wrong across time zones, weekends, and holidays.
 
 ### robinhood_get_indexes
 Get all tradable market indexes (SPX, NDX, VIX, RUT, XSP, …).

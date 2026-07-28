@@ -43,8 +43,15 @@ export function registerReviewTools(server: McpServer): void {
         "Simulate a stock order WITHOUT placing it — the required 'review' step before robinhood_place_stock_order. Returns the order echoed back, the live quote (so the user sees the cost), and order_checks: a reproduction of Robinhood's price collar that flags a mis-priced limit/stop order (e.g. a buy limit far above the market). order_checks is {} only when the collar ran and found no problem — read evaluated_checks/not_evaluated_checks to see what was and wasn't checked. Nothing is placed. ALWAYS show the review to the user before placing.",
       inputSchema: {
         symbol: z.string().describe("Stock ticker symbol (e.g. AAPL)."),
-        side: z.enum(["buy", "sell"]).describe("Order side."),
-        quantity: z.number().positive().describe("Number of shares (supports fractional)."),
+        side: z
+          .enum(["buy", "sell", "sell_short"])
+          .describe(
+            "Order side. 'sell' closes a long position; 'sell_short' opens a short position. To cover a short, use 'buy'.",
+          ),
+        quantity: z
+          .number()
+          .positive()
+          .describe("Number of shares. Fractional allowed except for 'sell_short'."),
         limit_price: z
           .number()
           .positive()

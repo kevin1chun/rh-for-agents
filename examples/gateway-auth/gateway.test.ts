@@ -1,6 +1,11 @@
-import { describe, it, expect } from "bun:test";
-import { AuthGateway, UnsafeStructuralVerifier, SharedSecretVerifier, createVerifier } from "./gateway";
+import { describe, expect, it } from "bun:test";
 import type { GatewayConfig } from "./config";
+import {
+  AuthGateway,
+  createVerifier,
+  SharedSecretVerifier,
+  UnsafeStructuralVerifier,
+} from "./gateway";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
@@ -37,16 +42,12 @@ describe("UnsafeStructuralVerifier", () => {
   });
 
   it("rejects non-array permissions", async () => {
-    const r = await v.verify(
-      JSON.stringify({ agentId: "x", permissions: "read" }),
-    );
+    const r = await v.verify(JSON.stringify({ agentId: "x", permissions: "read" }));
     expect(r.verified).toBe(false);
   });
 
   it("rejects non-string permission values", async () => {
-    const r = await v.verify(
-      JSON.stringify({ agentId: "x", permissions: [1, 2] }),
-    );
+    const r = await v.verify(JSON.stringify({ agentId: "x", permissions: [1, 2] }));
     expect(r.verified).toBe(false);
     expect(r.reason).toBe("permissions must be strings");
   });
@@ -181,9 +182,7 @@ describe("SharedSecretVerifier", () => {
 
 describe("createVerifier", () => {
   it("creates structural verifier", () => {
-    expect(createVerifier("structural")).toBeInstanceOf(
-      UnsafeStructuralVerifier,
-    );
+    expect(createVerifier("structural")).toBeInstanceOf(UnsafeStructuralVerifier);
   });
 
   it("throws for unknown type", () => {
@@ -214,10 +213,7 @@ describe("createVerifier", () => {
 
 describe("AuthGateway", () => {
   function makeGateway(configOverrides: Partial<GatewayConfig> = {}) {
-    return new AuthGateway(
-      makeConfig(configOverrides),
-      new UnsafeStructuralVerifier(),
-    );
+    return new AuthGateway(makeConfig(configOverrides), new UnsafeStructuralVerifier());
   }
 
   const readCred = JSON.stringify({
@@ -240,16 +236,12 @@ describe("AuthGateway", () => {
 
   it("denies missing credential", async () => {
     const gw = makeGateway();
-    expect(await gw.authorize(undefined, "robinhood_get_portfolio")).toBe(
-      "Access denied",
-    );
+    expect(await gw.authorize(undefined, "robinhood_get_portfolio")).toBe("Access denied");
   });
 
   it("denies invalid credential", async () => {
     const gw = makeGateway();
-    expect(await gw.authorize("garbage", "robinhood_get_portfolio")).toBe(
-      "Access denied",
-    );
+    expect(await gw.authorize("garbage", "robinhood_get_portfolio")).toBe("Access denied");
   });
 
   it("allows read agent to read", async () => {

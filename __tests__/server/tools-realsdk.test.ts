@@ -119,6 +119,14 @@ vi.mock("../../src/client/index.js", () => {
       .fn()
       .mockResolvedValue([{ symbol: "AAPL", data_points: [{ begins_at: "2026-07-14" }] }]),
     getTradability: vi.fn().mockResolvedValue([{ symbol: "AAPL", tradeable: true }]),
+    getMarketHours: vi.fn().mockResolvedValue({
+      is_open: true,
+      date: "2026-07-27",
+      opens_at: "2026-07-27T13:30:00Z",
+      closes_at: "2026-07-27T20:00:00Z",
+      extended_opens_at: "2026-07-27T11:00:00Z",
+      extended_closes_at: "2026-07-28T00:00:00Z",
+    }),
     getWatchlists: vi
       .fn()
       .mockResolvedValue([
@@ -307,9 +315,9 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 describe("real SDK smoke — registerTool + outputSchema end-to-end", () => {
-  it("lists all 49 tools without throwing (forces JSON-schema conversion)", async () => {
+  it("lists all 50 tools without throwing (forces JSON-schema conversion)", async () => {
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(49);
+    expect(tools).toHaveLength(50);
     for (const t of tools) {
       expect(t.outputSchema, `${t.name} missing outputSchema`).toBeDefined();
       expect(t.title, `${t.name} missing title`).toBeTruthy();
@@ -337,9 +345,25 @@ describe("real SDK smoke — registerTool + outputSchema end-to-end", () => {
       side: "buy",
       quantity: 1,
       time_in_force: "gfd",
+      market_hours: "regular_hours",
       account_number: "ACCT",
     });
     expect(r.structuredContent?.status).toBe("submitted");
+  });
+
+  // market_hours has no default on purpose: an order tagged to the wrong
+  // session silently queues instead of executing, so omitting it must fail
+  // loudly rather than pick a session for the caller.
+  it("robinhood_place_stock_order requires market_hours", async () => {
+    await expect(
+      call("robinhood_place_stock_order", {
+        symbol: "AAPL",
+        side: "buy",
+        quantity: 1,
+        time_in_force: "gfd",
+        account_number: "ACCT",
+      }),
+    ).rejects.toThrow(/market_hours|invalid_type|Required/i);
   });
 
   it("robinhood_cancel_order validates", async () => {

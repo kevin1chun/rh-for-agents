@@ -91,6 +91,7 @@ try {
 | `robinhood_get_option_orders` | `getAllOptionOrders(opts?)` / `getOpenOptionOrders(opts?)` |
 | `robinhood_get_option_historicals` | `getOptionHistoricals(symbol, expDate, strike, type, opts?)` |
 | `robinhood_get_movers` | `getTopMovers()` / `getTopMoversSp500(direction)` / `getTop100()` |
+| `robinhood_get_market_hours` | `getMarketHours(opts?)` |
 | `robinhood_get_indexes` | `getIndexInstruments()` |
 | `robinhood_get_index_quotes` | `getIndexQuotes(symbols)` |
 | `robinhood_review_equity_order` | `reviewEquityOrder(opts)` |
@@ -280,12 +281,53 @@ The option check set is intentionally thin (see `not_evaluated_checks`) — opti
 
 ### `orderStock(symbol, side, quantity, opts)`
 ```typescript
-await rh.orderStock("AAPL", "buy", 10, { timeInForce: "gfd" });                          // market
-await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd" });       // limit
-await rh.orderStock("AAPL", "sell", 10, { stopPrice: 145.0, limitPrice: 144.0, timeInForce: "gfd" }); // stop-limit
-await rh.orderStock("AAPL", "sell", 10, { trailAmount: 5, trailType: "percentage", timeInForce: "gfd" }); // trailing stop
+await rh.orderStock("AAPL", "buy", 10, { timeInForce: "gfd", marketHours: "regular_hours" });              // market
+await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd", marketHours: "regular_hours" }); // limit
+await rh.orderStock("AAPL", "sell", 10, { stopPrice: 145.0, limitPrice: 144.0, timeInForce: "gfd", marketHours: "regular_hours" }); // stop-limit
+await rh.orderStock("AAPL", "sell", 10, { trailAmount: 5, trailType: "percentage", timeInForce: "gfd", marketHours: "regular_hours" }); // trailing stop
+await rh.orderStock("AAPL", "sell_short", 10, { limitPrice: 150.0, timeInForce: "gfd", marketHours: "regular_hours" }); // open a short
+await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd", marketHours: "regular_hours" }); // cover a short
+await rh.orderStock("AAPL", "buy", 10, { limitPrice: 150.0, timeInForce: "gfd", marketHours: "all_day_hours" }); // 24 Hour Market
 ```
-Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeInForce (required), extendedHours }`
+Options: `{ limitPrice, stopPrice, trailAmount, trailType, accountNumber, timeInForce (required), marketHours, extendedHours }`
+
+**Side** — `"buy" | "sell" | "sell_short"`:
+
+| Intent | Side |
+|---|---|
+| Open / add to a long | `buy` |
+| Close a long | `sell` |
+| Open a short | `sell_short` |
+| Cover a short | `buy` |
+
+`sell` only closes a long — selling stock the account does not hold fails with `Not enough shares to sell.` There is no separate cover side; a plain `buy` against an open short is recognised as closing it.
+
+`sell_short` carries extra constraints, all enforced client-side so you get the reason before an order is attempted:
+
+| Constraint | Rejected by | Message you will see |
+|---|---|---|
+| Whole shares | client, before sending | `Short sales must be whole shares — fractional short selling is not supported` |
+| `timeInForce: "gfd"` | client, before sending | `Short sales must be good-for-day — timeInForce "gtc" is not accepted` |
+| Not in the 24 Hour Market | client, before sending | `Short selling is not available during the 24 Hour Market (all_day_hours)` |
+| Margin-enabled account | Robinhood | `You need to have margin investing enabled to short.` |
+| Session named outside regular hours | Robinhood | `It's after market close. To place this short sell order, change your trading session to extended hours.` |
+| Symbol shortable / borrow available | Robinhood | varies — check `short_selling_tradability` first |
+
+The first three throw locally, so no order is ever attempted; the rest come back as an `APIError` from Robinhood. Match on the message in this table, not on Robinhood's wording, for the client-side ones.
+
+An accepted short returns `state: "locate_completed"` (Robinhood located shares to borrow) — success, not an error. A filled short shows in `getPositions()` as a **negative** quantity; cover by buying the absolute value. Robinhood returns one rejection at a time and checks the session **before** the account type, so an after-hours attempt on a cash account reports the session error rather than the margin error.
+
+**Session** — `marketHours` is `"regular_hours" | "extended_hours" | "all_day_hours"` (the last is Robinhood's 24 Hour Market). It supersedes the legacy `extendedHours` boolean (`extended_hours` on the wire is just `market_hours !== "regular_hours"`); passing both with contradictory values throws. Only limit orders execute outside regular hours — a market, stop, or trailing order tagged to another session is rejected client-side. A short sell placed outside regular hours is rejected unless the session is named.
+
+**Pass `marketHours` explicitly.** It is optional here only for backwards compatibility: omitted, the order goes out as regular hours, which after the close means it queues for the next open instead of executing. The MCP tool makes `market_hours` **required** for exactly that reason. Use `getMarketHours()` to find out which session is live rather than inferring it from the local clock.
+
+### `getMarketHours(opts?)`
+```typescript
+const hours = await rh.getMarketHours();                          // today, US equities (XNYS)
+const nye = await rh.getMarketHours({ date: "2026-12-31" });      // a specific date
+// => { is_open, date, opens_at, closes_at, extended_opens_at, extended_closes_at }
+```
+`is_open` is false on weekends and holidays, with null session times. The date defaults to today **in market time (ET)**, not the caller's local date. Times are ISO-8601 UTC.
 
 ### `orderOption(symbol, legs, price, quantity, direction, opts?)`
 ```typescript

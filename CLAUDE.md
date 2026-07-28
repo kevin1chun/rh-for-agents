@@ -4,7 +4,7 @@ AI-native Robinhood trading interface — MCP server + TypeScript client library
 
 ## Project Structure
 - `src/client/` — Robinhood API client (76 async methods)
-- `src/server/` — MCP server with 49 tools
+- `src/server/` — MCP server with 50 tools
 - `bin/` — CLI entry point (`robinhood-for-agents`)
 - `skills/` — Claude Code skills for interactive use
 
@@ -62,6 +62,7 @@ await rh.restoreSession();
 - Token refresh via `refresh_token` + `device_token` — **proactive** (pre-request hook renews 24h before `expires_at`, `REFRESH_SKEW_SEC` in `src/client/auth.ts`) *and* reactive (on 401). Refresh tokens are single-use: every refresh rotates them and kills the previous one
 - Proper exceptions: `AuthenticationError`, `TokenExpiredError` (subclass — a 401 that survived the refresh retry; means re-login), `APIError`
 - **Do NOT use `phoenix.robinhood.com`** — it rejects TLS. Use `api.robinhood.com` endpoints only.
+- **Short sales are a distinct side, not a `sell`** — `side: "sell_short"` **and** `position_effect: "open"` must be sent together (either alone → `This type of trade is invalid.`; a plain `sell` with no position → `Not enough shares to sell.`). `order_form_type: "short_selling"` is derived server-side. Shorts are also session-scoped — send an explicit `market_hours` or the API rejects them after the close. Margin account required; whole shares only; there is no `buy_to_cover` side — cover with a plain `buy`
 
 ## Authentication
 - Browser login (`robinhood_browser_login`) opens Google Chrome via playwright-core's `channel: "chrome"` (`src/server/browser-auth.ts`). Chrome must be installed — there is no Brave/Chromium auto-detection, `BROWSER_PATH` override, or `--chrome` CLI flag implemented yet, despite earlier docs suggesting otherwise.

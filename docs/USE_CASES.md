@@ -23,6 +23,10 @@
 **User**: "Cancel my open TSLA order"
 **Claude**: Gets open orders, finds TSLA, confirms with user, cancels.
 
+### Opening a Short
+**User**: "Short 10 shares of SPY"
+**Claude**: Confirms the account is margin-enabled and the symbol is shortable, reviews a `sell_short` limit order, shows the preview labelled **SHORT SELL** with the session named, and places only after an explicit yes. Covering later is an ordinary `buy`.
+
 ## Programmatic (MCP via External Agents)
 
 ### Automated Rebalancing

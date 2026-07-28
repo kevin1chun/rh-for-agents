@@ -110,6 +110,14 @@ vi.mock("../../src/client/index.js", () => {
       .fn()
       .mockResolvedValue([{ symbol: "AAPL", data_points: [{ begins_at: "2026-07-14" }] }]),
     getTradability: vi.fn().mockResolvedValue([{ symbol: "AAPL", tradeable: true }]),
+    getMarketHours: vi.fn().mockResolvedValue({
+      is_open: true,
+      date: "2026-07-27",
+      opens_at: "2026-07-27T13:30:00Z",
+      closes_at: "2026-07-27T20:00:00Z",
+      extended_opens_at: "2026-07-27T11:00:00Z",
+      extended_closes_at: "2026-07-28T00:00:00Z",
+    }),
     // Phase 1B — watchlists
     getWatchlists: vi
       .fn()
@@ -341,7 +349,7 @@ describe("MCP Server", () => {
     expect(true).toBe(true);
   });
 
-  it("registers exactly 49 uniquely-named tools", async () => {
+  it("registers exactly 50 uniquely-named tools", async () => {
     const [
       auth,
       portfolio,
@@ -384,8 +392,8 @@ describe("MCP Server", () => {
     taxlots.registerTaxLotTools(server);
 
     const names = Object.keys(tools);
-    expect(names).toHaveLength(49);
-    expect(new Set(names).size).toBe(49); // no duplicate names
+    expect(names).toHaveLength(50);
+    expect(new Set(names).size).toBe(50); // no duplicate names
     expect(names.every((n) => n.startsWith("robinhood_"))).toBe(true);
   });
 });
@@ -1269,7 +1277,7 @@ describe("Tool error handling", () => {
       side: "buy",
       quantity: 100,
       time_in_force: "gtc",
-      extended_hours: false,
+      market_hours: "regular_hours",
       trail_type: "percentage",
     })) as {
       content: Array<{ text: string }>;
@@ -1278,5 +1286,79 @@ describe("Tool error handling", () => {
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content[0]?.text ?? "{}");
     expect(parsed.error).toContain("Insufficient funds");
+  });
+
+  // The tool requires market_hours precisely so a session is never defaulted.
+  // Without this assertion, dropping the forwarding in the handler would leave
+  // every MCP-placed order untagged and the whole suite would still pass.
+  it("forwards market_hours to the client on every stock order", async () => {
+    const { getClient } = await import("../../src/client/index.js");
+    const rh = getClient();
+    const spy = rh.orderStock as ReturnType<typeof vi.fn>;
+    spy.mockClear();
+
+    const { registerOrderTools } = await import("../../src/server/tools/orders.js");
+    const { server, tools } = captureMockServer();
+    registerOrderTools(server);
+
+    const handler = tools.robinhood_place_stock_order as ToolHandler;
+    await handler({
+      symbol: "AAPL",
+      side: "buy",
+      quantity: 1,
+      limit_price: 150,
+      time_in_force: "gfd",
+      market_hours: "all_day_hours",
+      trail_type: "percentage",
+      account_number: "ACCT",
+    });
+
+    expect(spy).toHaveBeenCalledWith(
+      "AAPL",
+      "buy",
+      1,
+      expect.objectContaining({ marketHours: "all_day_hours" }),
+    );
+  });
+
+  it("forwards sell_short through the place tool", async () => {
+    const { getClient } = await import("../../src/client/index.js");
+    const rh = getClient();
+    const spy = rh.orderStock as ReturnType<typeof vi.fn>;
+    spy.mockClear();
+
+    const { registerOrderTools } = await import("../../src/server/tools/orders.js");
+    const { server, tools } = captureMockServer();
+    registerOrderTools(server);
+
+    const handler = tools.robinhood_place_stock_order as ToolHandler;
+    await handler({
+      symbol: "AAPL",
+      side: "sell_short",
+      quantity: 10,
+      limit_price: 150,
+      time_in_force: "gfd",
+      market_hours: "regular_hours",
+      trail_type: "percentage",
+      account_number: "ACCT",
+    });
+
+    expect(spy).toHaveBeenCalledWith(
+      "AAPL",
+      "sell_short",
+      10,
+      expect.objectContaining({ marketHours: "regular_hours" }),
+    );
+  });
+
+  it("robinhood_get_market_hours returns the session windows", async () => {
+    const { registerMarketTools } = await import("../../src/server/tools/markets.js");
+    const { server, tools } = captureMockServer();
+    registerMarketTools(server);
+
+    const result = await callTool(tools, "robinhood_get_market_hours", {});
+    expect(result.is_open).toBe(true);
+    expect(result.opens_at).toBe("2026-07-27T13:30:00Z");
+    expect(typeof result.note).toBe("string");
   });
 });
